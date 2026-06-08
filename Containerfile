@@ -51,6 +51,9 @@ RUN dnf config-manager --add-repo \
     https://developer.download.nvidia.com/compute/cuda/repos/rhel9/x86_64/cuda-rhel9.repo \
     && dnf clean all
 
+# Disable the CentOS AppStream nvidia module so RPMFusion packages are not filtered out
+RUN dnf module disable nvidia-driver -y && dnf clean all
+
 # NVIDIA userspace driver + CUDA toolkit
 RUN dnf install -y \
     akmod-nvidia \
