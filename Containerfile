@@ -49,17 +49,17 @@ RUN dnf install -y \
 
 RUN dnf config-manager --add-repo \
     https://developer.download.nvidia.com/compute/cuda/repos/rhel9/x86_64/cuda-rhel9.repo \
+    && echo 'module_hotfixes=1' >> /etc/yum.repos.d/cuda-rhel9.repo \
     && dnf clean all
 
 # Disable the CentOS AppStream nvidia module so RPMFusion packages are not filtered out
 RUN dnf module disable nvidia-driver -y && dnf clean all
 
-# NVIDIA userspace driver + CUDA toolkit
+# NVIDIA userspace driver (RPMFusion) + full CUDA toolkit (NVIDIA repo, latest)
 RUN dnf install -y \
     akmod-nvidia \
     xorg-x11-drv-nvidia \
-    xorg-x11-drv-nvidia-cuda \
-    cuda-toolkit-12 \
+    cuda-toolkit \
     && dnf clean all
 
 # Build NVIDIA kernel modules for the image's kernel
