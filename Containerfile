@@ -79,6 +79,8 @@ RUN sed -i 's/^automount:.*/automount: sss/' /etc/nsswitch.conf \
 COPY etc/systemd/system/data.mount /etc/systemd/system/data.mount
 RUN systemctl enable data.mount
 
+COPY etc/NetworkManager/conf.d/hostname.conf /etc/NetworkManager/conf.d/hostname.conf
+
 RUN mkdir -p /etc/ssh/authorized_keys.d /data
 COPY etc/ssh/authorized_keys.d/egull /etc/ssh/authorized_keys.d/egull
 RUN chmod 644 /etc/ssh/authorized_keys.d/egull
