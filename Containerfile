@@ -37,36 +37,33 @@ RUN systemctl enable gdm \
     && systemctl enable oddjobd \
     && systemctl enable autofs
 
-# Add EPEL, RPMFusion (for akmod-nvidia), and NVIDIA CUDA repo (for cuda-toolkit)
+# NVIDIA CUDA repo — module_hotfixes bypasses AppStream modular filtering
 RUN dnf install -y \
     https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm \
-    && dnf clean all
-
-RUN dnf install -y \
-    https://mirrors.rpmfusion.org/free/el/rpmfusion-free-release-9.noarch.rpm \
-    https://mirrors.rpmfusion.org/nonfree/el/rpmfusion-nonfree-release-9.noarch.rpm \
     && dnf clean all
 
 RUN dnf config-manager --add-repo \
     https://developer.download.nvidia.com/compute/cuda/repos/rhel9/x86_64/cuda-rhel9.repo \
     && echo 'module_hotfixes=1' >> /etc/yum.repos.d/cuda-rhel9.repo \
+    && dnf module disable nvidia-driver -y \
     && dnf clean all
 
-# Disable the CentOS AppStream nvidia module so RPMFusion packages are not filtered out
-RUN dnf module disable nvidia-driver -y && dnf clean all
-
-# NVIDIA userspace driver (RPMFusion) + full CUDA toolkit (NVIDIA repo, latest)
+# Latest NVIDIA driver + CUDA toolkit — all from official NVIDIA repo, no version mixing
 RUN dnf install -y \
-    akmod-nvidia \
-    xorg-x11-drv-nvidia \
+    nvidia-driver \
+    nvidia-driver-libs \
+    nvidia-driver-cuda \
     cuda-toolkit \
+    dkms \
     && dnf clean all
 
-# Build NVIDIA kernel modules for the image's kernel
+# Build NVIDIA kernel module in-image using DKMS
 RUN KVER=$(rpm -q kernel --queryformat '%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort -V | tail -1) \
-    && dnf install -y akmods kernel-devel-${KVER} \
-    && akmods --force --kernels ${KVER} \
-    && modinfo /usr/lib/modules/${KVER}/extra/nvidia/nvidia.ko \
+    && NVIDIA_VER=$(rpm -q kmod-nvidia-latest-dkms --queryformat '%{VERSION}\n') \
+    && dnf install -y kernel-devel-${KVER} \
+    && dkms build nvidia/${NVIDIA_VER} -k ${KVER} \
+    && dkms install nvidia/${NVIDIA_VER} -k ${KVER} \
+    && find /usr/lib/modules/${KVER} -name "nvidia.ko*" | grep -q . \
     && dnf remove -y kernel-devel-${KVER} \
     && dnf clean all
 
