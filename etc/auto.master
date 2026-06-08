@@ -1,0 +1,4 @@
++dir:/etc/auto.master.d
+/dmj    auto_dmj    -intr,nosuid
+/expo   auto_expo   -intr,nosuid
+/repo   auto_repo   -intr,nosuid

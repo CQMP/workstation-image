@@ -19,19 +19,23 @@ RUN dnf install -y \
     python3-devel \
     # SSH
     openssh-server \
-    # LDAP/auth (stubbed for now)
+    # LDAP/auth
     sssd \
     sssd-ldap \
     sssd-tools \
     oddjob \
     oddjob-mkhomedir \
     authselect \
+    # NFS/autofs for home directories
+    autofs \
+    nfs-utils \
     && dnf clean all
 
 RUN systemctl enable gdm \
     && systemctl enable sshd \
     && systemctl enable sssd \
-    && systemctl enable oddjobd
+    && systemctl enable oddjobd \
+    && systemctl enable autofs
 
 # Add NVIDIA repo
 RUN dnf install -y \
@@ -54,6 +58,10 @@ COPY etc/sssd/sssd.conf /etc/sssd/sssd.conf
 RUN --mount=type=secret,id=ldap_password \
     sed -i "s/ldap_default_authtok = CHANGE_ME/ldap_default_authtok = $(cat /run/secrets/ldap_password)/" /etc/sssd/sssd.conf \
     && chmod 600 /etc/sssd/sssd.conf
+
+COPY etc/auto.master /etc/auto.master
+RUN sed -i 's/^automount:.*/automount: sss/' /etc/nsswitch.conf \
+    || echo 'automount: sss' >> /etc/nsswitch.conf
 
 RUN mkdir -p /etc/ssh/authorized_keys.d
 COPY etc/ssh/authorized_keys.d/egull /etc/ssh/authorized_keys.d/egull
