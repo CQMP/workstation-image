@@ -1,0 +1,13 @@
+[Unit]
+Description=Scratch data partition
+After=local-fs-pre.target
+Before=local-fs.target
+
+[Mount]
+What=/dev/disk/by-partlabel/data
+Where=/data
+Type=xfs
+Options=defaults
+
+[Install]
+WantedBy=local-fs.target
