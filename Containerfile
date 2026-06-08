@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM quay.io/rockylinux/rockylinux-bootc:9
+FROM quay.io/centos-bootc/centos-bootc:stream9
 
 RUN dnf install -y \
     # Desktop
