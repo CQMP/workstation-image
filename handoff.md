@@ -1,4 +1,4 @@
-Handoff: Rocky 9 bootc Workstation Image Setup
+Handoff: CentOS Stream 9 bootc Workstation Image Setup
 
 ## Context
 Setting up 10 diskless Dell workstations (Dell Pro Max Tower T2, RTX 2000 Ada GPU) for a
@@ -7,11 +7,11 @@ University of Warsaw (FUW). Using bootc (image-based OS provisioning) with GitHu
 Registry.
 
 ## Key Decisions
-- OS: CentOS Stream 9 base (quay.io/centos-bootc/centos-bootc:stream9) — Rocky Linux 9
-  does not publish an official bootc base image; CentOS Stream 9 is the standard bootc
-  base for RHEL 9 derivatives and is package-compatible
+- OS: CentOS Stream 9 base (quay.io/centos-bootc/centos-bootc:stream9) — the only publicly
+  available bootc base image for the RHEL 9 family; Rocky Linux 9 has no official bootc
+  base image
 - Provisioning: bootc (pull-based, no on-prem provisioning daemon)
-- Registry: ghcr.io/cqmp/rocky9-workstation:latest (public)
+- Registry: ghcr.io/cqmp/centos9-workstation:latest (public)
 - GitHub org: cqmp, admin user: egull
 - Repo: github.com/CQMP/workstation-image (public)
 - Desktop: GNOME with GDM and SSH enabled
@@ -54,7 +54,7 @@ etc/ssh/authorized_keys.d/egull      # egull's SSH public key
 ### sssd.conf status
 - `ldap_uri` and `ldap_search_base` are correct and confirmed working
 - `ldap_default_bind_dn` still has `cn=CHANGE_ME` placeholder — update once new account arrives
-- `ldap_tls_reqcert = demand` (cert validates against GEANT CA, in Rocky 9 trust store)
+- `ldap_tls_reqcert = demand` (cert validates against GEANT CA, in CentOS Stream 9 trust store)
 
 ### Other LDAP notes
 - FUW also has an OpenLDAP at cocos.fuw.edu.pl (193.0.80.11), base dc=fuw,dc=edu,dc=pl —
@@ -66,14 +66,14 @@ etc/ssh/authorized_keys.d/egull      # egull's SSH public key
 - Triggers: push to main, weekly Sunday 3am UTC
 - Auth to GHCR: GITHUB_TOKEN (no extra secret needed)
 - Build secret: LDAP_BIND_PASSWORD (GitHub Actions secret)
-- Image: ghcr.io/cqmp/rocky9-workstation:latest
+- Image: ghcr.io/cqmp/centos9-workstation:latest
 
 ## Open Items
 1. **LDAP bind account:** Waiting for hprxGullZgidWS from OKWF admins; update
    `ldap_default_bind_dn` in sssd.conf and rotate `LDAP_BIND_PASSWORD` secret
 2. **Per-node second user:** Mechanism TBD — users not yet known
 3. **NVIDIA/DKMS in bootc:** DKMS kernel module handling in ostree/bootc images has known
-   constraints; validate against current Rocky 9 + bootc docs before first real build
+   constraints; validate against current CentOS Stream 9 + bootc docs before first real build
 4. **Home directories:** fizyk1 mounts homes from `/dmj/ift1/` (NFS/autofs); workstations
    will need the same autofs/NFS config — not yet in the image
 5. **Per-node configuration:** bootc is a single image for all nodes; any per-node differences
