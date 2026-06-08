@@ -37,21 +37,34 @@ RUN systemctl enable gdm \
     && systemctl enable oddjobd \
     && systemctl enable autofs
 
-# Add NVIDIA repo
+# Add EPEL, RPMFusion (for akmod-nvidia), and NVIDIA CUDA repo (for cuda-toolkit)
 RUN dnf install -y \
     https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm \
+    && dnf clean all
+
+RUN dnf install -y \
+    https://mirrors.rpmfusion.org/free/el/rpmfusion-free-release-9.noarch.rpm \
+    https://mirrors.rpmfusion.org/nonfree/el/rpmfusion-nonfree-release-9.noarch.rpm \
     && dnf clean all
 
 RUN dnf config-manager --add-repo \
     https://developer.download.nvidia.com/compute/cuda/repos/rhel9/x86_64/cuda-rhel9.repo \
     && dnf clean all
 
+# NVIDIA userspace driver + CUDA toolkit
 RUN dnf install -y \
+    akmod-nvidia \
+    xorg-x11-drv-nvidia \
+    xorg-x11-drv-nvidia-cuda \
     cuda-toolkit-12 \
-    nvidia-driver \
-    nvidia-driver-libs \
-    nvidia-driver-cuda \
-    kmod-nvidia-latest-dkms \
+    && dnf clean all
+
+# Build NVIDIA kernel modules for the image's kernel
+RUN KVER=$(rpm -q kernel --queryformat '%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort -V | tail -1) \
+    && dnf install -y akmods kernel-devel-${KVER} \
+    && akmods --force --kernels ${KVER} \
+    && modinfo /usr/lib/modules/${KVER}/extra/nvidia/nvidia.ko \
+    && dnf remove -y kernel-devel-${KVER} \
     && dnf clean all
 
 COPY etc/sssd/sssd.conf /etc/sssd/sssd.conf
