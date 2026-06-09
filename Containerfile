@@ -130,6 +130,19 @@ RUN dnf install -y \
 
 COPY etc/condor/config.d/00-ift-execute.conf /etc/condor/config.d/00-ift-execute.conf
 
+# Printing — CUPS + OpenPrinting PPD database (includes Sharp MX-C358F)
+# Users configure the printer via Settings → Printers on first login
+RUN dnf install -y \
+    cups \
+    cups-client \
+    cups-filters \
+    foomatic \
+    foomatic-db \
+    foomatic-db-ppds \
+    system-config-printer \
+    && systemctl enable cups \
+    && dnf clean all
+
 # NVIDIA CUDA repo — module_hotfixes bypasses AppStream modular filtering
 
 RUN dnf config-manager --add-repo \
