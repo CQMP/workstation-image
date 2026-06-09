@@ -125,7 +125,7 @@ RUN rpm --import https://yum.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW
 # HTCondor execute node
 RUN dnf install -y \
     https://htcss-downloads.chtc.wisc.edu/repo/25.x/htcondor-release-current.el9.noarch.rpm \
-    && dnf install -y htcondor \
+    && dnf install -y condor \
     && systemctl enable condor \
     && dnf clean all
 
