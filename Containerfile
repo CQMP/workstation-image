@@ -37,6 +37,8 @@ RUN systemctl enable gdm \
     && systemctl enable oddjobd \
     && systemctl enable autofs
 
+RUN authselect select sssd with-mkhomedir --force
+
 # NVIDIA CUDA repo — module_hotfixes bypasses AppStream modular filtering
 RUN dnf install -y \
     https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm \
