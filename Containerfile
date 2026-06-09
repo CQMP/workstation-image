@@ -39,10 +39,73 @@ RUN systemctl enable gdm \
 
 RUN authselect select sssd with-mkhomedir --force
 
-# NVIDIA CUDA repo — module_hotfixes bypasses AppStream modular filtering
+# EPEL + CRB (CodeReady Builder) — CRB provides eigen3-devel and HTCondor deps
 RUN dnf install -y \
     https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm \
+    && dnf config-manager --set-enabled crb \
     && dnf clean all
+
+# MPI implementations + environment-modules for switching between them
+RUN dnf install -y \
+    environment-modules \
+    openmpi \
+    openmpi-devel \
+    mpich \
+    mpich-devel \
+    && dnf clean all
+
+# HDF5: serial and parallel builds for both MPI implementations
+RUN dnf install -y \
+    hdf5 \
+    hdf5-devel \
+    hdf5-openmpi \
+    hdf5-openmpi-devel \
+    hdf5-mpich \
+    hdf5-mpich-devel \
+    && dnf clean all
+
+# Numerical and physics libraries (GREEN, ALPS, ALPSCore, pySCF prerequisites)
+#   - openblas: BLAS/LAPACK (GREEN requires vendor BLAS; OpenBLAS is a good default)
+#   - eigen3: required by GREEN >= 3.4.0 and ALPSCore
+#   - boost: required by ALPS and ALPSCore
+#   - fftw: required by many QMC codes
+#   - gmp: required by GREEN analytical continuation module
+#   - libxc: exchange-correlation functionals (pySCF optional but recommended)
+RUN dnf install -y \
+    openblas \
+    openblas-devel \
+    eigen3-devel \
+    boost \
+    boost-devel \
+    fftw \
+    fftw-devel \
+    fftw-libs \
+    gmp \
+    gmp-devel \
+    libxc \
+    libxc-devel \
+    && dnf clean all
+
+# Python scientific stack
+# numba, spglib, ase (needed by green-mbtools) are not in RPM repos — install via pip per-user
+RUN dnf install -y \
+    python3-numpy \
+    python3-scipy \
+    python3-h5py \
+    python3-mpi4py-openmpi \
+    python3-mpi4py-mpich \
+    && dnf clean all
+
+# HTCondor execute node
+RUN dnf install -y \
+    https://htcss-downloads.chtc.wisc.edu/repo/25.x/htcondor-release-current.el9.noarch.rpm \
+    && dnf install -y htcondor \
+    && systemctl enable condor \
+    && dnf clean all
+
+COPY etc/condor/config.d/00-ift-execute.conf /etc/condor/config.d/00-ift-execute.conf
+
+# NVIDIA CUDA repo — module_hotfixes bypasses AppStream modular filtering
 
 RUN dnf config-manager --add-repo \
     https://developer.download.nvidia.com/compute/cuda/repos/rhel9/x86_64/cuda-rhel9.repo \
