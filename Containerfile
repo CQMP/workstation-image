@@ -104,12 +104,11 @@ RUN dnf install -y \
     gcc-toolset-15 gcc-toolset-15-gcc-gfortran \
     && dnf clean all
 
-# Clang/LLVM 20–22 (three latest parallel installs)
-# No LLVM Fortran (flang) available in CentOS Stream 9 AppStream
+# Clang/LLVM — CentOS Stream 9 ships one version updated in-place (currently 22.x)
+# No parallel versioned installs and no LLVM Fortran (flang) in AppStream
 RUN dnf install -y \
-    clang-20 \
-    clang-21 \
-    clang-22 \
+    clang \
+    clang-devel \
     && dnf clean all
 
 # Intel oneAPI C++ (icx/icpx) and Fortran (ifx) compilers
