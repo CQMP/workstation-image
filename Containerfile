@@ -96,6 +96,32 @@ RUN dnf install -y \
     python3-mpi4py-mpich \
     && dnf clean all
 
+# GCC toolsets 13–15 (three latest) — each includes C, C++, and Fortran (gfortran)
+# Activate with: source /opt/rh/gcc-toolset-N/enable  or  scl enable gcc-toolset-N bash
+RUN dnf install -y \
+    gcc-toolset-13 gcc-toolset-13-gcc-gfortran \
+    gcc-toolset-14 gcc-toolset-14-gcc-gfortran \
+    gcc-toolset-15 gcc-toolset-15-gcc-gfortran \
+    && dnf clean all
+
+# Clang/LLVM 20–22 (three latest parallel installs)
+# No LLVM Fortran (flang) available in CentOS Stream 9 AppStream
+RUN dnf install -y \
+    clang-20 \
+    clang-21 \
+    clang-22 \
+    && dnf clean all
+
+# Intel oneAPI C++ (icx/icpx) and Fortran (ifx) compilers
+# Large packages (~5 GB installed); activate with: source /opt/intel/oneapi/setvars.sh
+RUN rpm --import https://yum.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB \
+    && printf '[oneAPI]\nname=Intel oneAPI repository\nbaseurl=https://yum.repos.intel.com/oneapi\nenabled=1\ngpgcheck=1\nrepo_gpgcheck=1\ngpgkey=https://yum.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB\n' \
+        > /etc/yum.repos.d/oneAPI.repo \
+    && dnf install -y \
+        intel-oneapi-compiler-dpcpp-cpp \
+        intel-oneapi-compiler-fortran \
+    && dnf clean all
+
 # HTCondor execute node
 RUN dnf install -y \
     https://htcss-downloads.chtc.wisc.edu/repo/25.x/htcondor-release-current.el9.noarch.rpm \
