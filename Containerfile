@@ -142,8 +142,8 @@ RUN dnf install -y \
         nftables-devel \
         gnutls-devel \
         libbsd-devel \
-    && CRIU_TAG=$(curl -fsSL https://api.github.com/repos/checkpoint-restore/criu/releases/latest \
-           | grep '"tag_name"' | sed 's/.*"\(v[^"]*\)".*/\1/') \
+    && CRIU_TAG=$(git ls-remote --tags https://github.com/checkpoint-restore/criu.git 'v[0-9]*.[0-9]*' \
+           | grep -v '\^{}' | awk '{print $2}' | sed 's|refs/tags/||' | sort -V | tail -1) \
     && curl -fsSL \
         "https://github.com/checkpoint-restore/criu/archive/refs/tags/${CRIU_TAG}.tar.gz" \
         | tar -xz -C /tmp \
@@ -152,8 +152,8 @@ RUN dnf install -y \
     && dnf clean all
 
 # cuda-checkpoint — suspends/resumes GPU CUDA state around CRIU snapshots
-RUN CUDA_CKPT_TAG=$(curl -fsSL https://api.github.com/repos/NVIDIA/cuda-checkpoint/releases/latest \
-           | grep '"tag_name"' | sed 's/.*"\(v[^"]*\)".*/\1/') \
+RUN CUDA_CKPT_TAG=$(git ls-remote --tags https://github.com/NVIDIA/cuda-checkpoint.git 'v[0-9]*' \
+           | grep -v '\^{}' | awk '{print $2}' | sed 's|refs/tags/||' | sort -V | tail -1) \
     && curl -fsSL \
         "https://github.com/NVIDIA/cuda-checkpoint/releases/download/${CUDA_CKPT_TAG}/cuda-checkpoint" \
         -o /usr/local/bin/cuda-checkpoint \
