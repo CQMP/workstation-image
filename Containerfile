@@ -130,6 +130,35 @@ RUN dnf install -y \
 
 COPY etc/condor/config.d/00-ift-execute.conf /etc/condor/config.d/00-ift-execute.conf
 
+# CRIU — build latest from source; EPEL 9 ships 3.x but driver >= 570 requires 4.0+
+RUN dnf install -y \
+        libnl3-devel \
+        libcap-devel \
+        libaio-devel \
+        protobuf-devel \
+        protobuf-c-devel \
+        protobuf-c-compiler \
+        python3-protobuf \
+        nftables-devel \
+        gnutls-devel \
+        libbsd-devel \
+    && CRIU_TAG=$(curl -fsSL https://api.github.com/repos/checkpoint-restore/criu/releases/latest \
+           | grep '"tag_name"' | sed 's/.*"\(v[^"]*\)".*/\1/') \
+    && curl -fsSL \
+        "https://github.com/checkpoint-restore/criu/archive/refs/tags/${CRIU_TAG}.tar.gz" \
+        | tar -xz -C /tmp \
+    && make -C /tmp/criu-${CRIU_TAG#v} -j$(nproc) install \
+    && rm -rf /tmp/criu-${CRIU_TAG#v} \
+    && dnf clean all
+
+# cuda-checkpoint — suspends/resumes GPU CUDA state around CRIU snapshots
+RUN CUDA_CKPT_TAG=$(curl -fsSL https://api.github.com/repos/NVIDIA/cuda-checkpoint/releases/latest \
+           | grep '"tag_name"' | sed 's/.*"\(v[^"]*\)".*/\1/') \
+    && curl -fsSL \
+        "https://github.com/NVIDIA/cuda-checkpoint/releases/download/${CUDA_CKPT_TAG}/cuda-checkpoint" \
+        -o /usr/local/bin/cuda-checkpoint \
+    && chmod 755 /usr/local/bin/cuda-checkpoint
+
 # Printing — CUPS + OpenPrinting PPD database (includes Sharp MX-C358F)
 # Users configure the printer via Settings → Printers on first login
 RUN dnf install -y \
