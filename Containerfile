@@ -143,6 +143,7 @@ RUN dnf install -y \
         gnutls-devel \
         libbsd-devel \
         libdrm-devel \
+        libnet-devel \
     && CRIU_TAG=$(git ls-remote --tags https://github.com/checkpoint-restore/criu.git 'v[0-9]*.[0-9]*' \
            | grep -v '\^{}' | awk '{print $2}' | sed 's|refs/tags/||' | sort -V | tail -1) \
     && curl -fsSL \
