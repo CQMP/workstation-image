@@ -175,6 +175,9 @@ RUN dnf install -y \
     && systemctl enable cups \
     && dnf clean all
 
+# Blacklist nouveau so the proprietary NVIDIA driver can claim the GPU at boot
+COPY etc/modprobe.d/blacklist-nouveau.conf /etc/modprobe.d/blacklist-nouveau.conf
+
 # NVIDIA CUDA repo — module_hotfixes bypasses AppStream modular filtering
 
 RUN dnf config-manager --add-repo \

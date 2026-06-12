@@ -4,7 +4,7 @@ After=local-fs-pre.target
 Before=local-fs.target
 
 [Mount]
-What=/dev/disk/by-partlabel/data
+What=/dev/disk/by-label/data
 Where=/data
 Type=xfs
 Options=defaults
