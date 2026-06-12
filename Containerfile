@@ -119,14 +119,13 @@ RUN dnf install -y \
 
 # Intel oneAPI C++ (icx/icpx) and Fortran (ifx) compilers
 # Large packages (~5 GB installed); activate with: source /opt/intel/oneapi/setvars.sh
-# Disabled to speed up image builds — re-enable when needed
-# RUN rpm --import https://yum.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB \
-#     && printf '[oneAPI]\nname=Intel oneAPI repository\nbaseurl=https://yum.repos.intel.com/oneapi\nenabled=1\ngpgcheck=1\nrepo_gpgcheck=1\ngpgkey=https://yum.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB\n' \
-#         > /etc/yum.repos.d/oneAPI.repo \
-#     && dnf install -y \
-#         intel-oneapi-compiler-dpcpp-cpp \
-#         intel-oneapi-compiler-fortran \
-#     && dnf clean all
+RUN rpm --import https://yum.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB \
+    && printf '[oneAPI]\nname=Intel oneAPI repository\nbaseurl=https://yum.repos.intel.com/oneapi\nenabled=1\ngpgcheck=1\nrepo_gpgcheck=1\ngpgkey=https://yum.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB\n' \
+        > /etc/yum.repos.d/oneAPI.repo \
+    && dnf install -y \
+        intel-oneapi-compiler-dpcpp-cpp \
+        intel-oneapi-compiler-fortran \
+    && dnf clean all
 
 # HTCondor execute node
 RUN dnf install -y \
