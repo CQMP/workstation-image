@@ -142,12 +142,13 @@ RUN dnf install -y \
         nftables-devel \
         gnutls-devel \
         libbsd-devel \
+        libdrm-devel \
     && CRIU_TAG=$(git ls-remote --tags https://github.com/checkpoint-restore/criu.git 'v[0-9]*.[0-9]*' \
            | grep -v '\^{}' | awk '{print $2}' | sed 's|refs/tags/||' | sort -V | tail -1) \
     && curl -fsSL \
         "https://github.com/checkpoint-restore/criu/archive/refs/tags/${CRIU_TAG}.tar.gz" \
         | tar -xz -C /tmp \
-    && make -C /tmp/criu-${CRIU_TAG#v} -j$(nproc) install \
+    && make -C /tmp/criu-${CRIU_TAG#v} -j$(nproc) SKIP_DOCS=1 install \
     && rm -rf /tmp/criu-${CRIU_TAG#v} \
     && dnf clean all
 
