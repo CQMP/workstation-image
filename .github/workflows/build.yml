@@ -42,5 +42,7 @@ jobs:
           file: Containerfile
           push: true
           tags: ghcr.io/cqmp/centos9-workstation:latest
+          cache-from: type=registry,ref=ghcr.io/cqmp/centos9-workstation:cache
+          cache-to: type=registry,ref=ghcr.io/cqmp/centos9-workstation:cache,mode=max
           secrets: |
             ldap_password=${{ secrets.LDAP_BIND_PASSWORD }}
