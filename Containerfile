@@ -96,6 +96,12 @@ RUN dnf install -y \
     python3-mpi4py-mpich \
     && dnf clean all
 
+# Globus Connect Personal — users authenticate per-account at first run
+RUN curl -fsSL \
+        "https://downloads.globus.org/globus-connect-personal/linux/stable/globusconnectpersonal-latest.tgz" \
+        | tar -xz -C /opt \
+    && ln -s /opt/globusconnectpersonal/globusconnectpersonal /usr/local/bin/globusconnectpersonal
+
 # GCC toolsets 13–15 (three latest) — each includes C, C++, and Fortran (gfortran)
 # Activate with: source /opt/rh/gcc-toolset-N/enable  or  scl enable gcc-toolset-N bash
 RUN dnf install -y \
