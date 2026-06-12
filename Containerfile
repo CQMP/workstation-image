@@ -148,7 +148,8 @@ RUN dnf install -y \
     && curl -fsSL \
         "https://github.com/checkpoint-restore/criu/archive/refs/tags/${CRIU_TAG}.tar.gz" \
         | tar -xz -C /tmp \
-    && make -C /tmp/criu-${CRIU_TAG#v} -j$(nproc) SKIP_DOCS=1 install \
+    && make -C /tmp/criu-${CRIU_TAG#v} -j$(nproc) \
+    && make -C /tmp/criu-${CRIU_TAG#v} install-criu install-lib \
     && rm -rf /tmp/criu-${CRIU_TAG#v} \
     && dnf clean all
 
