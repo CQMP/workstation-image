@@ -195,12 +195,11 @@ RUN KVER=$(rpm -q kernel --queryformat '%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort 
     && dnf remove -y kernel-devel-${KVER} \
     && dnf clean all
 
-# cuda-checkpoint — build from source after CUDA toolkit is available
-# No tagged releases exist; always builds latest main branch
-RUN git clone --depth 1 https://github.com/NVIDIA/cuda-checkpoint.git /tmp/cuda-checkpoint \
-    && PATH=/usr/local/cuda/bin:$PATH make -C /tmp/cuda-checkpoint \
-    && install -m 755 /tmp/cuda-checkpoint/cuda-checkpoint /usr/local/bin/ \
-    && rm -rf /tmp/cuda-checkpoint
+# cuda-checkpoint — pre-built binary committed in repo at bin/x86_64_Linux/
+RUN curl -fsSL \
+        "https://raw.githubusercontent.com/NVIDIA/cuda-checkpoint/main/bin/x86_64_Linux/cuda-checkpoint" \
+        -o /usr/local/bin/cuda-checkpoint \
+    && chmod 755 /usr/local/bin/cuda-checkpoint
 
 COPY etc/sssd/sssd.conf /etc/sssd/sssd.conf
 RUN --mount=type=secret,id=ldap_password \
