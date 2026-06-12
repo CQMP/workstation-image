@@ -155,14 +155,6 @@ RUN dnf install -y \
     && rm -rf /tmp/criu-${CRIU_TAG#v} \
     && dnf clean all
 
-# cuda-checkpoint — suspends/resumes GPU CUDA state around CRIU snapshots
-RUN CUDA_CKPT_TAG=$(git ls-remote --tags https://github.com/NVIDIA/cuda-checkpoint.git 'v[0-9]*' \
-           | grep -v '\^{}' | awk '{print $2}' | sed 's|refs/tags/||' | sort -V | tail -1) \
-    && curl -fsSL \
-        "https://github.com/NVIDIA/cuda-checkpoint/releases/download/${CUDA_CKPT_TAG}/cuda-checkpoint" \
-        -o /usr/local/bin/cuda-checkpoint \
-    && chmod 755 /usr/local/bin/cuda-checkpoint
-
 # Printing — CUPS + OpenPrinting PPD database (includes Sharp MX-C358F)
 # Users configure the printer via Settings → Printers on first login
 RUN dnf install -y \
@@ -202,6 +194,13 @@ RUN KVER=$(rpm -q kernel --queryformat '%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort 
     && find /usr/lib/modules/${KVER} -name "nvidia.ko*" | grep -q . \
     && dnf remove -y kernel-devel-${KVER} \
     && dnf clean all
+
+# cuda-checkpoint — build from source after CUDA toolkit is available
+# No tagged releases exist; always builds latest main branch
+RUN git clone --depth 1 https://github.com/NVIDIA/cuda-checkpoint.git /tmp/cuda-checkpoint \
+    && PATH=/usr/local/cuda/bin:$PATH make -C /tmp/cuda-checkpoint \
+    && install -m 755 /tmp/cuda-checkpoint/cuda-checkpoint /usr/local/bin/ \
+    && rm -rf /tmp/cuda-checkpoint
 
 COPY etc/sssd/sssd.conf /etc/sssd/sssd.conf
 RUN --mount=type=secret,id=ldap_password \
