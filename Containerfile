@@ -113,13 +113,14 @@ RUN dnf install -y \
 
 # Intel oneAPI C++ (icx/icpx) and Fortran (ifx) compilers
 # Large packages (~5 GB installed); activate with: source /opt/intel/oneapi/setvars.sh
-RUN rpm --import https://yum.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB \
-    && printf '[oneAPI]\nname=Intel oneAPI repository\nbaseurl=https://yum.repos.intel.com/oneapi\nenabled=1\ngpgcheck=1\nrepo_gpgcheck=1\ngpgkey=https://yum.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB\n' \
-        > /etc/yum.repos.d/oneAPI.repo \
-    && dnf install -y \
-        intel-oneapi-compiler-dpcpp-cpp \
-        intel-oneapi-compiler-fortran \
-    && dnf clean all
+# Disabled to speed up image builds — re-enable when needed
+# RUN rpm --import https://yum.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB \
+#     && printf '[oneAPI]\nname=Intel oneAPI repository\nbaseurl=https://yum.repos.intel.com/oneapi\nenabled=1\ngpgcheck=1\nrepo_gpgcheck=1\ngpgkey=https://yum.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB\n' \
+#         > /etc/yum.repos.d/oneAPI.repo \
+#     && dnf install -y \
+#         intel-oneapi-compiler-dpcpp-cpp \
+#         intel-oneapi-compiler-fortran \
+#     && dnf clean all
 
 # HTCondor execute node
 RUN dnf install -y \
@@ -192,7 +193,7 @@ RUN KVER=$(rpm -q kernel --queryformat '%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort 
     && dkms build nvidia/${NVIDIA_VER} -k ${KVER} \
     && dkms install nvidia/${NVIDIA_VER} -k ${KVER} \
     && find /usr/lib/modules/${KVER} -name "nvidia.ko*" | grep -q . \
-    && dnf remove -y kernel-devel-${KVER} \
+    && rpm -e --nodeps kernel-devel-${KVER} kernel-devel-matched-${KVER} \
     && dnf clean all
 
 # cuda-checkpoint — pre-built binary committed in repo at bin/x86_64_Linux/
