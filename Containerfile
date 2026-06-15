@@ -230,6 +230,9 @@ RUN curl -fsSL \
 
 COPY etc/condor/config.d/00-ift-execute.conf /etc/condor/config.d/00-ift-execute.conf
 
+COPY etc/sudoers.d/egull /etc/sudoers.d/egull
+RUN chmod 440 /etc/sudoers.d/egull
+
 # Blacklist nouveau so the proprietary NVIDIA driver can claim the GPU at boot.
 # install nouveau /bin/false + dracut omit_drivers ensure it never loads, even during initramfs.
 COPY etc/modprobe.d/blacklist-nouveau.conf /etc/modprobe.d/blacklist-nouveau.conf
