@@ -24,6 +24,9 @@ RUN dnf install -y \
     # Node.js (prerequisite for per-user Claude Code: npm install -g @anthropic-ai/claude-code)
     nodejs \
     npm \
+    # GRUB EFI tools (for rebuilding USB installer EFI binaries)
+    grub2-efi-x64-modules \
+    grub2-tools-extra \
     # SSH
     openssh-server \
     # LDAP/auth
