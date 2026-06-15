@@ -149,8 +149,6 @@ RUN dnf install -y \
     && systemctl enable condor \
     && dnf clean all
 
-COPY etc/condor/config.d/00-ift-execute.conf /etc/condor/config.d/00-ift-execute.conf
-
 # SELinux permissive — condor requires dac_override to manage jobs as different users;
 # enforcing mode blocks this and floods the console. Research workstations use auth, not MAC.
 RUN sed -i 's/^SELINUX=.*/SELINUX=permissive/' /etc/selinux/config
@@ -193,13 +191,7 @@ RUN dnf install -y \
     && systemctl enable cups \
     && dnf clean all
 
-# Blacklist nouveau so the proprietary NVIDIA driver can claim the GPU at boot.
-# install nouveau /bin/false + dracut omit_drivers ensure it never loads, even during initramfs.
-COPY etc/modprobe.d/blacklist-nouveau.conf /etc/modprobe.d/blacklist-nouveau.conf
-COPY etc/dracut.conf.d/blacklist-nouveau.conf /etc/dracut.conf.d/blacklist-nouveau.conf
-
 # NVIDIA CUDA repo — module_hotfixes bypasses AppStream modular filtering
-
 RUN dnf config-manager --add-repo \
     https://developer.download.nvidia.com/compute/cuda/repos/rhel9/x86_64/cuda-rhel9.repo \
     && echo 'module_hotfixes=1' >> /etc/yum.repos.d/cuda-rhel9.repo \
@@ -232,6 +224,17 @@ RUN curl -fsSL \
         -o /usr/local/bin/cuda-checkpoint \
     && chmod 755 /usr/local/bin/cuda-checkpoint
 
+# ── Config files ────────────────────────────────────────────────────────────
+# All COPY instructions are grouped here, after all expensive build layers,
+# so that editing a config file does not invalidate the package/build cache.
+
+COPY etc/condor/config.d/00-ift-execute.conf /etc/condor/config.d/00-ift-execute.conf
+
+# Blacklist nouveau so the proprietary NVIDIA driver can claim the GPU at boot.
+# install nouveau /bin/false + dracut omit_drivers ensure it never loads, even during initramfs.
+COPY etc/modprobe.d/blacklist-nouveau.conf /etc/modprobe.d/blacklist-nouveau.conf
+COPY etc/dracut.conf.d/blacklist-nouveau.conf /etc/dracut.conf.d/blacklist-nouveau.conf
+
 COPY etc/sssd/sssd.conf /etc/sssd/sssd.conf
 RUN --mount=type=secret,id=ldap_password \
     sed -i "s/ldap_default_authtok = CHANGE_ME/ldap_default_authtok = $(cat /run/secrets/ldap_password)/" /etc/sssd/sssd.conf \
@@ -254,5 +257,3 @@ COPY root/.ssh/authorized_keys /root/.ssh/authorized_keys
 RUN chmod 644 /etc/ssh/sshd_config.d/50-ift.conf /etc/ssh/authorized_keys.d/egull \
     && chmod 700 /root/.ssh \
     && chmod 600 /root/.ssh/authorized_keys
-
-
