@@ -21,6 +21,9 @@ RUN dnf install -y \
     python3 \
     python3-pip \
     python3-devel \
+    # Node.js (prerequisite for per-user Claude Code: npm install -g @anthropic-ai/claude-code)
+    nodejs \
+    npm \
     # SSH
     openssh-server \
     # LDAP/auth
@@ -88,6 +91,11 @@ RUN dnf install -y \
     gmp-devel \
     libxc \
     libxc-devel \
+    && dnf clean all
+
+# Plotting
+RUN dnf install -y \
+    grace \
     && dnf clean all
 
 # Python scientific stack
@@ -182,8 +190,10 @@ RUN dnf install -y \
     && systemctl enable cups \
     && dnf clean all
 
-# Blacklist nouveau so the proprietary NVIDIA driver can claim the GPU at boot
+# Blacklist nouveau so the proprietary NVIDIA driver can claim the GPU at boot.
+# install nouveau /bin/false + dracut omit_drivers ensure it never loads, even during initramfs.
 COPY etc/modprobe.d/blacklist-nouveau.conf /etc/modprobe.d/blacklist-nouveau.conf
+COPY etc/dracut.conf.d/blacklist-nouveau.conf /etc/dracut.conf.d/blacklist-nouveau.conf
 
 # NVIDIA CUDA repo — module_hotfixes bypasses AppStream modular filtering
 
@@ -209,6 +219,7 @@ RUN KVER=$(rpm -q kernel --queryformat '%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort 
     && dkms build nvidia/${NVIDIA_VER} -k ${KVER} \
     && dkms install nvidia/${NVIDIA_VER} -k ${KVER} \
     && find /usr/lib/modules/${KVER} -name "nvidia.ko*" | grep -q . \
+    && dracut --force --omit-drivers nouveau /boot/initramfs-${KVER}.img ${KVER} \
     && rpm -e --nodeps kernel-devel-${KVER} kernel-devel-matched-${KVER} \
     && dnf clean all
 
