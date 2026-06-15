@@ -33,6 +33,7 @@ RUN dnf install -y \
     sssd \
     sssd-ldap \
     sssd-tools \
+    openldap-clients \
     oddjob \
     oddjob-mkhomedir \
     authselect \
