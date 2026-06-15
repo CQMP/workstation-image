@@ -136,6 +136,10 @@ RUN dnf install -y \
 
 COPY etc/condor/config.d/00-ift-execute.conf /etc/condor/config.d/00-ift-execute.conf
 
+# SELinux permissive — condor requires dac_override to manage jobs as different users;
+# enforcing mode blocks this and floods the console. Research workstations use auth, not MAC.
+RUN sed -i 's/^SELINUX=.*/SELINUX=permissive/' /etc/selinux/config
+
 # CRIU — build latest from source; EPEL 9 ships 3.x but driver >= 570 requires 4.0+
 RUN dnf install -y \
         libnl3-devel \
