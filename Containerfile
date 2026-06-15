@@ -228,8 +228,9 @@ RUN systemctl enable data.mount
 
 COPY etc/NetworkManager/conf.d/hostname.conf /etc/NetworkManager/conf.d/hostname.conf
 
-RUN mkdir -p /etc/ssh/authorized_keys.d /data
+RUN mkdir -p /etc/ssh/authorized_keys.d /etc/ssh/sshd_config.d /data
+COPY etc/ssh/sshd_config.d/50-ift.conf /etc/ssh/sshd_config.d/50-ift.conf
 COPY etc/ssh/authorized_keys.d/egull /etc/ssh/authorized_keys.d/egull
-RUN chmod 644 /etc/ssh/authorized_keys.d/egull
+RUN chmod 644 /etc/ssh/sshd_config.d/50-ift.conf /etc/ssh/authorized_keys.d/egull
 
 
