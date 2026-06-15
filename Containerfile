@@ -235,8 +235,9 @@ RUN --mount=type=secret,id=ldap_password \
     && chmod 600 /etc/sssd/sssd.conf
 
 COPY etc/auto.master /etc/auto.master
-RUN sed -i 's/^automount:.*/automount: sss/' /etc/nsswitch.conf \
-    || echo 'automount: sss' >> /etc/nsswitch.conf
+RUN mkdir -p /dmj /expo /repo
+RUN sed -i 's/^automount:.*/automount: files sss/' /etc/nsswitch.conf \
+    || echo 'automount: files sss' >> /etc/nsswitch.conf
 
 COPY etc/systemd/system/data.mount /etc/systemd/system/data.mount
 RUN systemctl enable data.mount
