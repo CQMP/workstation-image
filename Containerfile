@@ -1,5 +1,9 @@
 # syntax=docker/dockerfile:1
-FROM quay.io/centos-bootc/centos-bootc:stream9
+# Pin to a specific digest so BuildKit layer cache survives across builds.
+# Update this digest periodically (monthly) to pick up base OS security patches:
+#   curl -fsSL "https://quay.io/api/v1/repository/centos-bootc/centos-bootc/tag/?specificTag=stream9&onlyActiveTags=true" \
+#     | python3 -c "import sys,json; print(json.load(sys.stdin)['tags'][0]['manifest_digest'])"
+FROM quay.io/centos-bootc/centos-bootc:stream9@sha256:32c6d2d51c99a3d20678f786a1fb388f04afcdfd97b7987dfc108673896f1596
 
 RUN dnf install -y \
     # Desktop
