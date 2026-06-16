@@ -215,8 +215,10 @@ RUN curl -fsSL \
     && chmod 755 /usr/local/bin/cuda-checkpoint
 
 # Diagnostic/optional tools — separate block so additions don't invalidate expensive layers above
-RUN dnf install -y \
+RUN dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo \
+    && dnf install -y \
     openldap-clients \
+    gh \
     && dnf clean all
 
 # Small config adjustments — at the end to avoid cache churn on expensive layers above
