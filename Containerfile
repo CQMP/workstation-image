@@ -46,7 +46,8 @@ RUN systemctl enable gdm \
     && systemctl enable sshd \
     && systemctl enable sssd \
     && systemctl enable oddjobd \
-    && systemctl enable autofs
+    && systemctl enable autofs \
+    && systemctl set-default graphical.target
 
 RUN authselect select sssd with-mkhomedir --force
 
