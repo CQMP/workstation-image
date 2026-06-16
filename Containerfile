@@ -33,7 +33,6 @@ RUN dnf install -y \
     sssd \
     sssd-ldap \
     sssd-tools \
-    openldap-clients \
     oddjob \
     oddjob-mkhomedir \
     authselect \
@@ -46,8 +45,7 @@ RUN systemctl enable gdm \
     && systemctl enable sshd \
     && systemctl enable sssd \
     && systemctl enable oddjobd \
-    && systemctl enable autofs \
-    && systemctl set-default graphical.target
+    && systemctl enable autofs
 
 RUN authselect select sssd with-mkhomedir --force
 
@@ -134,16 +132,6 @@ RUN dnf install -y \
     clang-devel \
     && dnf clean all
 
-# Intel oneAPI C++ (icx/icpx) and Fortran (ifx) compilers
-# Large packages (~5 GB installed); activate with: source /opt/intel/oneapi/setvars.sh
-RUN rpm --import https://yum.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB \
-    && printf '[oneAPI]\nname=Intel oneAPI repository\nbaseurl=https://yum.repos.intel.com/oneapi\nenabled=1\ngpgcheck=1\nrepo_gpgcheck=1\ngpgkey=https://yum.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB\n' \
-        > /etc/yum.repos.d/oneAPI.repo \
-    && dnf install -y \
-        intel-oneapi-compiler-dpcpp-cpp \
-        intel-oneapi-compiler-fortran \
-    && dnf clean all
-
 # HTCondor execute node
 RUN dnf install -y \
     https://htcss-downloads.chtc.wisc.edu/repo/25.x/htcondor-release-current.el9.noarch.rpm \
@@ -225,6 +213,14 @@ RUN curl -fsSL \
         "https://raw.githubusercontent.com/NVIDIA/cuda-checkpoint/main/bin/x86_64_Linux/cuda-checkpoint" \
         -o /usr/local/bin/cuda-checkpoint \
     && chmod 755 /usr/local/bin/cuda-checkpoint
+
+# Diagnostic/optional tools — separate block so additions don't invalidate expensive layers above
+RUN dnf install -y \
+    openldap-clients \
+    && dnf clean all
+
+# Small config adjustments — at the end to avoid cache churn on expensive layers above
+RUN systemctl set-default graphical.target
 
 # ── Config files ────────────────────────────────────────────────────────────
 # All COPY instructions are grouped here, after all expensive build layers,
