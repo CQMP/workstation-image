@@ -112,8 +112,8 @@ The install runs without interaction. It will:
 Do not interrupt. The machine is ready when it boots into the GNOME login screen.
 
 > **Note:** If Anaconda aborts immediately with a disk error, the drive name may differ from
-> `nvme0n1`. SSH in (or open a shell with **Ctrl+Alt+F2**) and run `lsblk` to find the
-> correct device. Update `ks.cfg` in the repo if needed.
+> `nvme0n1`. Open a shell with **Ctrl+Alt+F2** and run `lsblk` to find the correct device.
+> Update `ks.cfg` in the repo if needed.
 
 ### 4. First-boot verification
 
@@ -135,8 +135,8 @@ ls /dmj/ift1/egull
 # NVIDIA driver
 nvidia-smi
 
-# GPU visible to CUDA
-/usr/local/cuda/bin/deviceQuery 2>/dev/null | grep "Result ="
+# GPU name visible to CUDA
+nvidia-smi --query-gpu=name --format=csv,noheader
 ```
 
 All four should succeed. If `nvidia-smi` fails, check that Secure Boot is disabled.
