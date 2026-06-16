@@ -228,6 +228,16 @@ RUN systemctl set-default graphical.target
 
 COPY etc/condor/config.d/00-ift-execute.conf /etc/condor/config.d/00-ift-execute.conf
 
+# Kernel command-line drop-ins
+COPY etc/kernel/cmdline.d/audit.conf /etc/kernel/cmdline.d/audit.conf
+COPY etc/kernel/cmdline.d/nvidia.conf /etc/kernel/cmdline.d/nvidia.conf
+
+# HiDPI: 2x scaling for user sessions and GDM login screen
+COPY etc/dconf/profile/user /etc/dconf/profile/user
+COPY etc/dconf/db/local.d/01-hidpi /etc/dconf/db/local.d/01-hidpi
+COPY etc/dconf/db/gdm.d/01-hidpi /etc/dconf/db/gdm.d/01-hidpi
+RUN dconf update
+
 COPY etc/sudoers.d/egull /etc/sudoers.d/egull
 RUN chmod 440 /etc/sudoers.d/egull
 
