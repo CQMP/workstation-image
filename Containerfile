@@ -204,7 +204,7 @@ RUN KVER=$(rpm -q kernel --queryformat '%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort 
     && dkms build nvidia/${NVIDIA_VER} -k ${KVER} \
     && dkms install nvidia/${NVIDIA_VER} -k ${KVER} \
     && find /usr/lib/modules/${KVER} -name "nvidia.ko*" | grep -q . \
-    && dracut --force --omit-drivers nouveau /boot/initramfs-${KVER}.img ${KVER} \
+    && dracut --force --omit-drivers 'nouveau nvidia nvidia_drm nvidia_uvm nvidia_modeset' /boot/initramfs-${KVER}.img ${KVER} \
     && rpm -e --nodeps kernel-devel-${KVER} kernel-devel-matched-${KVER} \
     && dnf clean all
 
@@ -245,6 +245,7 @@ RUN chmod 440 /etc/sudoers.d/egull
 # install nouveau /bin/false + dracut omit_drivers ensure it never loads, even during initramfs.
 COPY etc/modprobe.d/blacklist-nouveau.conf /etc/modprobe.d/blacklist-nouveau.conf
 COPY etc/dracut.conf.d/blacklist-nouveau.conf /etc/dracut.conf.d/blacklist-nouveau.conf
+COPY etc/dracut.conf.d/omit-nvidia-initramfs.conf /etc/dracut.conf.d/omit-nvidia-initramfs.conf
 
 COPY etc/sssd/sssd.conf /etc/sssd/sssd.conf
 RUN --mount=type=secret,id=ldap_password \
