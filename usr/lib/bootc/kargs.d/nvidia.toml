@@ -1,0 +1,1 @@
+kargs = ["nvidia-drm.modeset=1"]

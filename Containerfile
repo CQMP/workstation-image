@@ -222,7 +222,7 @@ RUN dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.rep
     && dnf clean all
 
 # Small config adjustments — at the end to avoid cache churn on expensive layers above
-RUN systemctl set-default graphical.target
+RUN ln -sf /usr/lib/systemd/system/graphical.target /etc/systemd/system/default.target
 
 # ── Config files ────────────────────────────────────────────────────────────
 # All COPY instructions are grouped here, after all expensive build layers,
@@ -230,9 +230,9 @@ RUN systemctl set-default graphical.target
 
 COPY etc/condor/config.d/00-ift-execute.conf /etc/condor/config.d/00-ift-execute.conf
 
-# Kernel command-line drop-ins
-COPY etc/kernel/cmdline.d/audit.conf /etc/kernel/cmdline.d/audit.conf
-COPY etc/kernel/cmdline.d/nvidia.conf /etc/kernel/cmdline.d/nvidia.conf
+# Kernel arguments (bootc reads these from /usr/lib/bootc/kargs.d/ at deployment time)
+COPY usr/lib/bootc/kargs.d/audit.toml /usr/lib/bootc/kargs.d/audit.toml
+COPY usr/lib/bootc/kargs.d/nvidia.toml /usr/lib/bootc/kargs.d/nvidia.toml
 
 # HiDPI: 2x scaling for user sessions and GDM login screen
 COPY etc/dconf/profile/user /etc/dconf/profile/user
