@@ -1,0 +1,21 @@
+[Unit]
+Description=Create /data per-user directories for authorized users
+After=data.mount sssd.service
+Requires=data.mount
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/bash -c '\
+  for user in egull rfarid ajazdzewska amarie abalbi; do \
+    dir=/data/$user; \
+    [ -d "$dir" ] && continue; \
+    if ! id "$user" &>/dev/null; then \
+      echo "data-homedirs: $user not resolvable yet, skipping"; \
+      continue; \
+    fi; \
+    mkdir -p "$dir" && chown "$user:$user" "$dir" && chmod 700 "$dir"; \
+  done'
+
+[Install]
+WantedBy=multi-user.target

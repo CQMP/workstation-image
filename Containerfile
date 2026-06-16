@@ -257,7 +257,9 @@ RUN sed -i 's/^automount:.*/automount: files sss/' /etc/nsswitch.conf \
     || echo 'automount: files sss' >> /etc/nsswitch.conf
 
 COPY etc/systemd/system/data.mount /etc/systemd/system/data.mount
-RUN systemctl enable data.mount
+COPY etc/systemd/system/data-homedirs.service /etc/systemd/system/data-homedirs.service
+RUN systemctl enable data.mount \
+    && systemctl enable data-homedirs.service
 
 COPY etc/NetworkManager/conf.d/hostname.conf /etc/NetworkManager/conf.d/hostname.conf
 
