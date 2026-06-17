@@ -273,23 +273,58 @@ RUN curl -fsSL \
     && printf '[Desktop Entry]\nVersion=1.0\nType=Application\nName=Eclipse CDT\nIcon=/opt/eclipse/icon.xpm\nExec=/opt/eclipse/eclipse\nCategories=Development;IDE;\nTerminal=false\nStartupWMClass=Eclipse\n' \
         > /usr/share/applications/eclipse-cdt.desktop
 
-# LaTeX — TeX Live medium scheme (~800 MB without docs/src) covers the essentials:
-#   latexextra: biblatex, biber, siunitx, tikz/pgf, braket, physics, and more
-#   mathscience: math and science packages
-#   fontsrecommended: standard font families
-# Then tlmgr adds collection-publishers for physics journal styles:
-#   revtex4-1 (APS: Physical Review, PRL), elsarticle (Elsevier), IEEEtran, achemso
-# AppStream texlive RPMs are TeX Live 2020 with too few packages; TUG installer is needed.
-RUN curl -fsSL "https://mirror.ctan.org/systems/texlive/tlnet/install-tl-unx.tar.gz" \
-        | tar -xz -C /tmp \
-    && INSTALLER=$(ls -d /tmp/install-tl-*) \
-    && printf 'selected_scheme scheme-medium\nTEXDIR /usr/local/texlive\ntlpdbopt_install_docfiles 0\ntlpdbopt_install_srcfiles 0\n' \
-        > /tmp/tl.profile \
-    && "${INSTALLER}/install-tl" -profile /tmp/tl.profile \
-    && /usr/local/texlive/bin/x86_64-linux/tlmgr install collection-publishers \
-    && echo 'export PATH="/usr/local/texlive/bin/x86_64-linux:$PATH"' \
-        > /etc/profile.d/texlive.sh \
-    && rm -rf /tmp/install-tl-* /tmp/tl.profile
+# LaTeX — all packages via dnf (AppStream + EPEL); no TUG installer needed.
+# texlive-scheme-full is not packaged for CentOS 9, but individual packages cover
+# all typical physics paper needs: revtex4 (APS), IEEEtran, siunitx, pgf/tikz,
+# bibtex, natbib, beamer, amsmath/fonts, hyperref, and standard font families.
+RUN dnf install -y \
+    texlive \
+    texlive-collection-basic \
+    texlive-collection-latex \
+    texlive-collection-latexrecommended \
+    texlive-collection-fontsrecommended \
+    texlive-collection-xetex \
+    texlive-revtex4 \
+    texlive-IEEEtran \
+    texlive-siunitx \
+    texlive-pgf \
+    texlive-pgfplots \
+    texlive-bibtex \
+    texlive-natbib \
+    texlive-amsmath \
+    texlive-amsfonts \
+    texlive-amscls \
+    texlive-beamer \
+    texlive-mathtools \
+    texlive-booktabs \
+    texlive-hyperref \
+    texlive-geometry \
+    texlive-caption \
+    texlive-subfig \
+    texlive-wrapfig \
+    texlive-listings \
+    texlive-enumitem \
+    texlive-fancyhdr \
+    texlive-microtype \
+    texlive-mhchem \
+    texlive-xcolor \
+    texlive-multirow \
+    texlive-float \
+    texlive-tcolorbox \
+    texlive-lineno \
+    texlive-placeins \
+    texlive-appendix \
+    texlive-xetex \
+    texlive-luatex \
+    texlive-dvipng \
+    texlive-dvips \
+    texlive-epstopdf \
+    texlive-cm-super \
+    texlive-lm \
+    texlive-lm-math \
+    texlive-newtx \
+    texlive-txfonts \
+    && dnf clean all
 
 # Small config adjustments — at the end to avoid cache churn on expensive layers above
 RUN ln -sf /usr/lib/systemd/system/graphical.target /etc/systemd/system/default.target
