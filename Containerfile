@@ -204,9 +204,14 @@ RUN KVER=$(rpm -q kernel --queryformat '%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort 
     && dkms build nvidia/${NVIDIA_VER} -k ${KVER} \
     && dkms install nvidia/${NVIDIA_VER} -k ${KVER} \
     && find /usr/lib/modules/${KVER} -name "nvidia.ko*" | grep -q . \
-    && for fw in nvidia amdgpu radeon i915; do mv /usr/lib/firmware/$fw /tmp/fw-$fw 2>/dev/null ||:; done \
-    && dracut --force --omit-drivers 'nouveau nvidia nvidia_drm nvidia_uvm nvidia_modeset' /boot/initramfs-${KVER}.img ${KVER} \
-    && for fw in nvidia amdgpu radeon i915; do mv /tmp/fw-$fw /usr/lib/firmware/$fw 2>/dev/null ||:; done \
+    && mkdir -p /tmp/fw-save \
+    && find /usr/lib/firmware -maxdepth 1 -mindepth 1 -type d -exec mv {} /tmp/fw-save/ \; \
+    && dracut --force \
+        --omit-drivers 'nouveau nvidia nvidia_drm nvidia_uvm nvidia_modeset' \
+        --omit i18n \
+        /boot/initramfs-${KVER}.img ${KVER} \
+    && ls -lh /boot/initramfs-${KVER}.img \
+    && find /tmp/fw-save -maxdepth 1 -mindepth 1 -exec mv {} /usr/lib/firmware/ \; \
     && rpm -e --nodeps kernel-devel-${KVER} kernel-devel-matched-${KVER} \
     && dnf clean all
 
