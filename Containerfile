@@ -221,6 +221,69 @@ RUN dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.rep
     gh \
     && dnf clean all
 
+# Firefox browser
+RUN dnf install -y firefox && dnf clean all
+
+# Google Chrome — via official Google RPM repo
+RUN printf '[google-chrome]\nname=google-chrome\nbaseurl=https://dl.google.com/linux/chrome/rpm/stable/x86_64\nenabled=1\ngpgcheck=1\ngpgkey=https://dl.google.com/linux/linux_signing_key.pub\n' \
+        > /etc/yum.repos.d/google-chrome.repo \
+    && dnf install -y google-chrome-stable \
+    && dnf clean all
+
+# GNOME utilities — file manager, viewers, system tools, text editor, keyring UI
+RUN dnf install -y \
+    nautilus \
+    gnome-tweaks \
+    evince \
+    eog \
+    file-roller \
+    gnome-calculator \
+    gnome-disk-utility \
+    gnome-system-monitor \
+    baobab \
+    gedit \
+    seahorse \
+    && dnf clean all
+
+# Image processing and PostScript tools
+RUN dnf install -y \
+    ghostscript \
+    ImageMagick \
+    && dnf clean all
+
+# CLion — latest stable release, system-wide install in /opt/clion (bundles its own JBR)
+RUN CLION_VER=$(curl -fsSL \
+        "https://data.services.jetbrains.com/products/releases?code=CL&latest=true&type=release" \
+        | python3 -c "import sys,json; print(json.load(sys.stdin)['CL'][0]['version'])") \
+    && curl -fsSL "https://download.jetbrains.com/cpp/CLion-${CLION_VER}.tar.gz" \
+        | tar -xz -C /opt \
+    && mv /opt/clion-${CLION_VER} /opt/clion \
+    && ln -s /opt/clion/bin/clion /usr/local/bin/clion \
+    && printf '[Desktop Entry]\nVersion=1.0\nType=Application\nName=CLion\nIcon=/opt/clion/bin/clion.svg\nExec=/opt/clion/bin/clion %%f\nCategories=Development;IDE;\nTerminal=false\nStartupWMClass=jetbrains-clion\n' \
+        > /usr/share/applications/clion.desktop
+
+# Eclipse CDT — C/C++ IDE with CDT, CMake, EGit, and bundled JRE; update tag periodically
+# Releases: https://download.eclipse.org/technology/epp/downloads/release/
+RUN curl -fsSL \
+        "https://download.eclipse.org/technology/epp/downloads/release/2026-06/R/eclipse-cpp-2026-06-R-linux-gtk-x86_64.tar.gz" \
+        | tar -xz -C /opt \
+    && ln -s /opt/eclipse/eclipse /usr/local/bin/eclipse \
+    && printf '[Desktop Entry]\nVersion=1.0\nType=Application\nName=Eclipse CDT\nIcon=/opt/eclipse/icon.xpm\nExec=/opt/eclipse/eclipse\nCategories=Development;IDE;\nTerminal=false\nStartupWMClass=Eclipse\n' \
+        > /usr/share/applications/eclipse-cdt.desktop
+
+# LaTeX — TUG TeX Live full scheme (docs/src omitted for size); scheme-full includes every
+# package in the distribution: APS revtex4-1, AIP, IEEE, Elsevier elsarticle, AMS fonts,
+# siunitx, tikz/pgf, biblatex/biber, braket, physics, and all publisher styles on CTAN.
+RUN curl -fsSL "https://mirror.ctan.org/systems/texlive/tlnet/install-tl-unx.tar.gz" \
+        | tar -xz -C /tmp \
+    && INSTALLER=$(ls -d /tmp/install-tl-*) \
+    && printf 'selected_scheme scheme-full\nTEXDIR /usr/local/texlive\ntlpdbopt_install_docfiles 0\ntlpdbopt_install_srcfiles 0\n' \
+        > /tmp/tl.profile \
+    && "${INSTALLER}/install-tl" -profile /tmp/tl.profile \
+    && echo 'export PATH="/usr/local/texlive/bin/x86_64-linux:$PATH"' \
+        > /etc/profile.d/texlive.sh \
+    && rm -rf /tmp/install-tl-* /tmp/tl.profile
+
 # Small config adjustments — at the end to avoid cache churn on expensive layers above
 RUN ln -sf /usr/lib/systemd/system/graphical.target /etc/systemd/system/default.target
 
