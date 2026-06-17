@@ -276,12 +276,14 @@ RUN curl -fsSL \
 # LaTeX — TUG TeX Live full scheme (docs/src omitted for size); scheme-full includes every
 # package in the distribution: APS revtex4-1, AIP, IEEE, Elsevier elsarticle, AMS fonts,
 # siunitx, tikz/pgf, biblatex/biber, braket, physics, and all publisher styles on CTAN.
-RUN curl -fsSL "https://mirror.ctan.org/systems/texlive/tlnet/install-tl-unx.tar.gz" \
+# Pin to a specific CTAN mirror so install-tl doesn't auto-select a flaky one.
+RUN CTAN=https://ctan.math.utah.edu/ctan/systems/texlive/tlnet \
+    && curl -fsSL "${CTAN}/install-tl-unx.tar.gz" \
         | tar -xz -C /tmp \
     && INSTALLER=$(ls -d /tmp/install-tl-*) \
     && printf 'selected_scheme scheme-full\nTEXDIR /usr/local/texlive\ntlpdbopt_install_docfiles 0\ntlpdbopt_install_srcfiles 0\n' \
         > /tmp/tl.profile \
-    && "${INSTALLER}/install-tl" -profile /tmp/tl.profile \
+    && "${INSTALLER}/install-tl" -profile /tmp/tl.profile -repository "${CTAN}" \
     && echo 'export PATH="/usr/local/texlive/bin/x86_64-linux:$PATH"' \
         > /etc/profile.d/texlive.sh \
     && rm -rf /tmp/install-tl-* /tmp/tl.profile
