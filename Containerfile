@@ -344,7 +344,11 @@ RUN dnf install -y \
     && dnf clean all
 
 # Small config adjustments — at the end to avoid cache churn on expensive layers above
-RUN ln -sf /usr/lib/systemd/system/graphical.target /etc/systemd/system/default.target
+# Keep both the bootc /etc defaults and the immutable unit fallback pointed at GDM.
+RUN ln -sf /usr/lib/systemd/system/graphical.target /etc/systemd/system/default.target \
+    && ln -sf /usr/lib/systemd/system/gdm.service /etc/systemd/system/display-manager.service \
+    && ln -sf graphical.target /usr/lib/systemd/system/default.target \
+    && ln -sf gdm.service /usr/lib/systemd/system/display-manager.service
 
 # ── Config files ────────────────────────────────────────────────────────────
 # All COPY instructions are grouped here, after all expensive build layers,
@@ -362,6 +366,8 @@ COPY usr/lib/bootc/kargs.d/audit.toml /usr/lib/bootc/kargs.d/audit.toml
 COPY usr/lib/bootc/kargs.d/nvidia.toml /usr/lib/bootc/kargs.d/nvidia.toml
 
 # HiDPI: 2x scaling for user sessions and GDM login screen
+COPY etc/vconsole.conf /etc/vconsole.conf
+COPY etc/X11/xorg.conf.d/00-keyboard.conf /etc/X11/xorg.conf.d/00-keyboard.conf
 COPY etc/dconf/profile/user /etc/dconf/profile/user
 COPY etc/dconf/db/local.d/01-hidpi /etc/dconf/db/local.d/01-hidpi
 COPY etc/dconf/db/gdm.d/01-hidpi /etc/dconf/db/gdm.d/01-hidpi
