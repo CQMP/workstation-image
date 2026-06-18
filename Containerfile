@@ -203,6 +203,7 @@ RUN dnf install -y \
 COPY etc/modprobe.d/blacklist-nouveau.conf /etc/modprobe.d/blacklist-nouveau.conf
 COPY etc/dracut.conf.d/blacklist-nouveau.conf /etc/dracut.conf.d/blacklist-nouveau.conf
 COPY etc/dracut.conf.d/omit-nvidia-initramfs.conf /etc/dracut.conf.d/omit-nvidia-initramfs.conf
+COPY etc/dracut.conf.d/ift-workstation-initramfs.conf /etc/dracut.conf.d/ift-workstation-initramfs.conf
 
 # Build NVIDIA kernel module in-image using DKMS
 RUN KVER=$(rpm -q kernel --queryformat '%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort -V | tail -1) \
