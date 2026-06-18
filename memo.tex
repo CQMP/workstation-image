@@ -1,0 +1,174 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{hyperref}
+\usepackage{enumitem}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=black,
+  urlcolor=blue
+}
+
+\setlist[itemize]{leftmargin=*}
+
+\title{IFT GPU Workstation Memo}
+\author{CQMP}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section{Hardware Configuration}
+
+The workstations are Dell Pro Max Tower T2 systems installed from the shared
+workstation image.  The currently installed reference machine, Matsubara, has
+the following configuration:
+
+\begin{itemize}
+  \item CPU: Intel Core Ultra 7 265, 20 cores, one socket.
+  \item Memory: 30 GiB RAM plus 8 GiB compressed swap.
+  \item Local storage: one Kioxia XG10d 1 TB NVMe device.  The standard
+        installation uses a 512 MB EFI partition, a 1 GB \texttt{/boot}
+        partition, a 50 GB operating-system partition, and the remainder as
+        \texttt{/data}.
+  \item Graphics: integrated Intel Arrow Lake-S graphics plus an NVIDIA
+        RTX 2000 Ada Generation GPU.
+  \item Network: Intel I219-LM Ethernet.
+\end{itemize}
+
+The workstation inventory and assigned addresses are tracked in
+\texttt{machines.md} in the image repository.
+
+\section{System Configuration}
+
+The machines run CentOS Stream 9 as a bootc image.  In this model, the
+operating system is built as a container image and deployed atomically to the
+host.  The machine normally boots the current deployment and keeps a rollback
+deployment available.  Updates are delivered by publishing a new image and then
+running a bootc upgrade on the workstation.
+
+The image repository is:
+
+\begin{center}
+\url{https://github.com/CQMP/workstation-image}
+\end{center}
+
+The published image used by the installer and by bootc is:
+
+\begin{center}
+\texttt{ghcr.io/cqmp/centos9-workstation:latest}
+\end{center}
+
+The main image definition is the \texttt{Containerfile}.  The unattended
+installer is described by \texttt{ks.cfg}; it partitions the local NVMe disk,
+pulls the image above, and installs the bootc system.  The image includes GNOME
+and GDM, NVIDIA drivers and CUDA tooling, SSH, LDAP/SSSD authentication,
+autofs/NFS integration, HTCondor, compilers, MPI stacks, Python scientific
+packages, browsers, editors, and common desktop tools.
+
+The image also carries kernel arguments and initramfs configuration needed for
+these systems.  In particular, nouveau is blacklisted, NVIDIA DRM mode setting
+is enabled, and the initramfs is kept small enough for reliable EFI boot.
+
+\section{Package Requests and Image Changes}
+
+Users should not install long-lived system packages manually on individual
+workstations.  Manual changes are local to one machine and may disappear after
+reinstallation or diverge from the rest of the pool.  Instead, package requests
+and system configuration changes should be made through the image repository.
+
+The preferred workflow is:
+
+\begin{enumerate}
+  \item Fork \url{https://github.com/CQMP/workstation-image}.
+  \item Modify the \texttt{Containerfile} or the relevant file under
+        \texttt{etc/}, \texttt{usr/}, or another tracked directory.
+  \item Build or inspect the change locally when practical.
+  \item Submit a pull request against the main repository.
+\end{enumerate}
+
+After a pull request is merged, GitHub Actions rebuilds and publishes the image.
+Machines can then receive the update with:
+
+\begin{verbatim}
+sudo bootc upgrade
+sudo reboot
+\end{verbatim}
+
+\section{Logging In}
+
+Authentication is handled through the FUW/ITP LDAP system via SSSD.  Users log
+in with their Unix password.  Being present in LDAP is necessary but not
+sufficient: the image also contains an explicit allow list of users who may log
+in to these workstations.
+
+The allow list is configured in \texttt{etc/sssd/sssd.conf} as
+\texttt{simple\_allow\_users}.  Users who need access should provide their Unix
+user name so it can be added to the image.  The current image allow list is:
+
+\begin{center}
+\texttt{egull, rfarid, ajazdzewska, amarie, abalbi}
+\end{center}
+
+Home directories and shared file systems are resolved through LDAP/autofs.  If
+login fails, the first things to check are whether the user exists in the LDAP
+Unix domain, whether the user is on the image allow list, and whether the user
+is using the Unix password rather than another institutional password.
+
+\section{Condor}
+
+Each workstation is configured as an HTCondor execute node.  The local Condor
+configuration is in:
+
+\begin{center}
+\texttt{etc/condor/config.d/00-ift-execute.conf}
+\end{center}
+
+The execute node contacts \texttt{condor.gull-group.org}.  It runs only the
+Condor master and startd daemons, so these machines provide execution slots but
+are not the central manager.
+
+The configuration is designed for interactive workstations.  Jobs start only
+when the keyboard has been idle for at least 15 minutes and the machine load is
+low:
+
+\begin{center}
+\texttt{START = (KeyboardIdle > 900) \&\& (LoadAvg < 0.5)}
+\end{center}
+
+If a local user returns briefly, Condor suspends the job.  If the machine stays
+active, the job is preempted and evicted.  The image enables CRIU-based
+checkpointing and installs NVIDIA's \texttt{cuda-checkpoint} helper so GPU jobs
+can be checkpointed during eviction when supported by the workload.  The
+configured vacate time is one hour, giving checkpointing time to complete before
+the job is killed.
+
+The NVIDIA GPU is intended to be available to CUDA and Condor jobs.  Users
+submitting GPU jobs should request the appropriate GPU resources through the
+central Condor configuration and should test their jobs with \texttt{nvidia-smi}
+or CUDA device discovery before launching large runs.
+
+\section{File System}
+
+Authentication and network file-system access are handled through ITP/FUW Unix
+credentials.  The image configures SSSD for LDAP and autofs for the shared
+mount points:
+
+\begin{center}
+\texttt{/dmj}, \texttt{/expo}, and \texttt{/repo}
+\end{center}
+
+These network file systems are appropriate for home directories, shared code,
+small inputs, and files that need central management.
+
+Each workstation also has a fast local NVMe scratch disk mounted at
+\texttt{/data}.  The standard installation creates per-user directories there
+for allowed users.  This disk is not backed up.  It should be used for
+simulation scratch data, compilation trees, temporary files, local virtual
+environments, and other high-I/O work that does not need backup.  Important
+results should be copied back to backed-up network storage.
+
+\end{document}

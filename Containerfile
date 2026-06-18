@@ -342,6 +342,10 @@ RUN dnf install -y \
     texlive-newtx \
     texlive-txfonts \
     && dnf clean all
+RUN mkdir -p /var/lib/texmf/web2c \
+    && fmtutil-sys --byfmt pdflatex \
+    && ln -sf pdftex/pdflatex.fmt /var/lib/texmf/web2c/pdflatex.fmt \
+    && mktexlsr /var/lib/texmf
 
 # Small config adjustments — at the end to avoid cache churn on expensive layers above
 # Keep both the bootc /etc defaults and the immutable unit fallback pointed at GDM.
