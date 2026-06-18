@@ -197,6 +197,13 @@ RUN dnf install -y \
     dkms \
     && dnf clean all
 
+# Blacklist nouveau before dracut so the rule is embedded in the initramfs.
+# Without this, nouveau loads from the initramfs before the real rootfs mounts,
+# defeating the modprobe.d blacklist on the live system.
+COPY etc/modprobe.d/blacklist-nouveau.conf /etc/modprobe.d/blacklist-nouveau.conf
+COPY etc/dracut.conf.d/blacklist-nouveau.conf /etc/dracut.conf.d/blacklist-nouveau.conf
+COPY etc/dracut.conf.d/omit-nvidia-initramfs.conf /etc/dracut.conf.d/omit-nvidia-initramfs.conf
+
 # Build NVIDIA kernel module in-image using DKMS
 RUN KVER=$(rpm -q kernel --queryformat '%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort -V | tail -1) \
     && NVIDIA_VER=$(rpm -q kmod-nvidia-latest-dkms --queryformat '%{VERSION}\n') \
@@ -225,6 +232,8 @@ RUN curl -fsSL \
 RUN dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo \
     && dnf install -y \
     openldap-clients \
+    pciutils \
+    grubby \
     gh \
     && dnf clean all
 
@@ -353,11 +362,6 @@ RUN dconf update
 COPY etc/sudoers.d/egull /etc/sudoers.d/egull
 RUN chmod 440 /etc/sudoers.d/egull
 
-# Blacklist nouveau so the proprietary NVIDIA driver can claim the GPU at boot.
-# install nouveau /bin/false + dracut omit_drivers ensure it never loads, even during initramfs.
-COPY etc/modprobe.d/blacklist-nouveau.conf /etc/modprobe.d/blacklist-nouveau.conf
-COPY etc/dracut.conf.d/blacklist-nouveau.conf /etc/dracut.conf.d/blacklist-nouveau.conf
-COPY etc/dracut.conf.d/omit-nvidia-initramfs.conf /etc/dracut.conf.d/omit-nvidia-initramfs.conf
 
 COPY etc/sssd/sssd.conf /etc/sssd/sssd.conf
 RUN --mount=type=secret,id=ldap_password \
