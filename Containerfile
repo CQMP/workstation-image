@@ -218,7 +218,9 @@ RUN KVER=$(rpm -q kernel --queryformat '%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort 
         --omit-drivers 'nouveau nvidia nvidia_drm nvidia_uvm nvidia_modeset' \
         --omit i18n \
         /boot/initramfs-${KVER}.img ${KVER} \
+    && install -m 0644 /boot/initramfs-${KVER}.img /usr/lib/modules/${KVER}/initramfs.img \
     && ls -lh /boot/initramfs-${KVER}.img \
+    && ls -lh /usr/lib/modules/${KVER}/initramfs.img \
     && find /tmp/fw-save -maxdepth 1 -mindepth 1 -exec mv {} /usr/lib/firmware/ \; \
     && rpm -e --nodeps kernel-devel-${KVER} kernel-devel-matched-${KVER} \
     && dnf clean all
