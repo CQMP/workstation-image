@@ -1,0 +1,7 @@
+[Unit]
+Description=Weekly bootc image upgrade and reboot
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bootc upgrade
+ExecStartPost=/usr/bin/systemctl reboot

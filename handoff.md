@@ -18,15 +18,18 @@ Registry.
 - Auth: SSSD + LDAP (see details below)
 - Dev tools: Python, C++, Fortran (gcc-gfortran), CUDA 12.x
 - GPU drivers: NVIDIA proprietary via CUDA RPM repo + DKMS
-- Updates: Automatic weekly pull, Sunday 3am (GitHub Actions schedule)
+- Updates: Automatic weekly pull+reboot, Sunday 4am UTC (one hour after CI rebuild at 3am UTC)
 - Admin SSH: egull on all nodes; per-node second user TBD
 
 ## Repo Structure
 ```
-Containerfile                        # Main image definition
-etc/sssd/sssd.conf                   # SSSD config (bind password injected at build time)
-etc/ssh/authorized_keys.d/egull      # egull's SSH public key
-.github/workflows/build.yml          # CI: builds and pushes to GHCR on push + weekly
+Containerfile                              # Main image definition
+etc/sssd/sssd.conf                         # SSSD config (bind password injected at build time)
+etc/ssh/authorized_keys.d/egull            # egull's SSH public key
+etc/condor/config.d/00-ift-execute.conf    # HTCondor execute node config
+etc/systemd/system/bootc-update.service   # Stages update + reboots
+etc/systemd/system/bootc-update.timer     # Fires Sun 04:00 UTC
+.github/workflows/build.yml               # CI: builds and pushes to GHCR on push + weekly
 ```
 
 ## LDAP / Authentication
@@ -65,17 +68,101 @@ etc/ssh/authorized_keys.d/egull      # egull's SSH public key
 - Workflow: .github/workflows/build.yml
 - Triggers: push to main, weekly Sunday 3am UTC
 - Auth to GHCR: GITHUB_TOKEN (no extra secret needed)
-- Build secret: LDAP_BIND_PASSWORD (GitHub Actions secret)
+- Build secrets: `LDAP_BIND_PASSWORD`, `CONDOR_POOL_TOKEN` (GitHub Actions secrets)
 - Image: ghcr.io/cqmp/centos9-workstation:latest
+
+## HTCondor
+
+The pool central manager is `condor.gull-group.org`. Each workstation runs as an execute
+node (`MASTER, STARTD`). Authentication to the collector uses an IDTOKEN baked into the image
+at build time from the `CONDOR_POOL_TOKEN` GitHub Actions secret.
+
+### Token file requirements
+
+HTCondor's `read_secure_file` enforces strict ownership on token files:
+- `/etc/condor/tokens.d/`        — `root:root`, mode `700`
+- `/etc/condor/tokens.d/pool-token` — `root:root`, mode `600`
+
+The `condor_master` process runs as root and reads the token directly. Any other ownership
+or looser permissions (e.g. `condor:condor 600` or `root:condor 640`) will be rejected with
+an error in MasterLog and the daemon will silently fall back to other auth methods, all of
+which fail remotely.
+
+### Verifying condor token delivery
+
+After a machine boots a fresh image, check:
+
+```bash
+sudo ls -la /etc/condor/tokens.d/
+# expect: drwx------ root:root  (directory)
+#         -rw------- root:root  pool-token
+
+condor_status $(hostname)
+# expect: machine appears as a slot
+```
+
+If the STARTD logs show any of these, the token is wrong or missing:
+```
+read_secure_file(...): file must be owned by uid 0
+read_secure_file(...): file must not be readable by others
+SECMAN: required authentication with collector condor.gull-group.org failed
+Collector update failed; will try to get a token request for trust domain ...
+```
+
+### Immediate fix for a machine with bad token permissions
+
+```bash
+sudo chown root:root /etc/condor/tokens.d /etc/condor/tokens.d/pool-token
+sudo chmod 700 /etc/condor/tokens.d
+sudo chmod 600 /etc/condor/tokens.d/pool-token
+sudo systemctl restart condor
+```
+
+### Immediate fix for a machine running a stale image (token missing entirely)
+
+```bash
+sudo bootc upgrade && sudo reboot
+```
+
+If the token is still missing after upgrading, check whether `CONDOR_POOL_TOKEN` is set in
+GitHub Actions secrets and whether the last CI build succeeded.
+
+### Generating a new token (on the central manager)
+
+```bash
+# On condor.gull-group.org:
+condor_token_create -identity condor@<hostname> > /tmp/<hostname>-token
+scp /tmp/<hostname>-token egull@<hostname>:/tmp/
+# On the workstation:
+sudo cp /tmp/<hostname>-token /etc/condor/tokens.d/pool-token
+sudo chown root:root /etc/condor/tokens.d/pool-token
+sudo chmod 600 /etc/condor/tokens.d/pool-token
+sudo systemctl restart condor
+```
+
+## Updating machines
+
+The image rebuilds every Sunday at 3am UTC (and on every push to main). Machines
+auto-update and reboot Sunday at 4am UTC via `bootc-update.timer`.
+
+To update a machine immediately:
+
+```bash
+sudo bootc upgrade && sudo reboot
+```
+
+To check what image a machine is currently running:
+
+```bash
+bootc status
+```
 
 ## Open Items
 1. **LDAP bind account:** Waiting for hprxGullZgidWS from OKWF admins; update
    `ldap_default_bind_dn` in sssd.conf and rotate `LDAP_BIND_PASSWORD` secret
 2. **Per-node second user:** Mechanism TBD — users not yet known
-3. **NVIDIA/DKMS in bootc:** DKMS kernel module handling in ostree/bootc images has known
-   constraints; validate against current CentOS Stream 9 + bootc docs before first real build
-4. **Home directories:** fizyk1 mounts homes from `/dmj/ift1/` (NFS/autofs); workstations
+3. **Home directories:** fizyk1 mounts homes from `/dmj/ift1/` (NFS/autofs); workstations
    will need the same autofs/NFS config — not yet in the image
-5. **Per-node configuration:** bootc is a single image for all nodes; any per-node differences
+4. **Per-node configuration:** bootc is a single image for all nodes; any per-node differences
    (hostname, second user) need a separate mechanism (e.g., cloud-init, ignition, or a
    post-boot script)

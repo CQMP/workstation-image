@@ -362,7 +362,8 @@ COPY etc/condor/config.d/00-ift-execute.conf /etc/condor/config.d/00-ift-execute
 RUN --mount=type=secret,id=condor_token \
     mkdir -p /etc/condor/tokens.d \
     && cp /run/secrets/condor_token /etc/condor/tokens.d/pool-token \
-    && chown condor:condor /etc/condor/tokens.d/pool-token \
+    && chown root:root /etc/condor/tokens.d /etc/condor/tokens.d/pool-token \
+    && chmod 700 /etc/condor/tokens.d \
     && chmod 600 /etc/condor/tokens.d/pool-token
 
 # Kernel arguments (bootc reads these from /usr/lib/bootc/kargs.d/ at deployment time)
@@ -393,8 +394,11 @@ RUN sed -i 's/^automount:.*/automount: files sss/' /etc/nsswitch.conf \
 
 COPY etc/systemd/system/data.mount /etc/systemd/system/data.mount
 COPY etc/systemd/system/data-homedirs.service /etc/systemd/system/data-homedirs.service
+COPY etc/systemd/system/bootc-update.service /etc/systemd/system/bootc-update.service
+COPY etc/systemd/system/bootc-update.timer /etc/systemd/system/bootc-update.timer
 RUN systemctl enable data.mount \
-    && systemctl enable data-homedirs.service
+    && systemctl enable data-homedirs.service \
+    && systemctl enable bootc-update.timer
 
 COPY etc/NetworkManager/conf.d/hostname.conf /etc/NetworkManager/conf.d/hostname.conf
 
