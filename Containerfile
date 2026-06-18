@@ -348,6 +348,11 @@ RUN ln -sf /usr/lib/systemd/system/graphical.target /etc/systemd/system/default.
 # so that editing a config file does not invalidate the package/build cache.
 
 COPY etc/condor/config.d/00-ift-execute.conf /etc/condor/config.d/00-ift-execute.conf
+RUN --mount=type=secret,id=condor_token \
+    mkdir -p /etc/condor/tokens.d \
+    && cp /run/secrets/condor_token /etc/condor/tokens.d/pool-token \
+    && chown condor:condor /etc/condor/tokens.d/pool-token \
+    && chmod 600 /etc/condor/tokens.d/pool-token
 
 # Kernel arguments (bootc reads these from /usr/lib/bootc/kargs.d/ at deployment time)
 COPY usr/lib/bootc/kargs.d/audit.toml /usr/lib/bootc/kargs.d/audit.toml

@@ -46,3 +46,4 @@ jobs:
           cache-to: type=registry,ref=ghcr.io/cqmp/centos9-workstation:cache,mode=max
           secrets: |
             ldap_password=${{ secrets.LDAP_BIND_PASSWORD }}
+            condor_token=${{ secrets.CONDOR_POOL_TOKEN }}
