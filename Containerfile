@@ -248,6 +248,16 @@ RUN printf '[google-chrome]\nname=google-chrome\nbaseurl=https://dl.google.com/l
     && dnf install -y google-chrome-stable \
     && dnf clean all
 
+# Slack — official RPM via packagecloud
+RUN curl -fsSL https://packagecloud.io/install/repositories/slacktechnologies/slack/script.rpm.sh | bash \
+    && dnf install -y slack \
+    && dnf clean all
+
+# Element (Matrix client) — official RPM repo from packages.element.io
+RUN dnf config-manager --add-repo https://packages.element.io/rpm/element-io.repo \
+    && dnf install -y element-desktop \
+    && dnf clean all
+
 # GNOME utilities — file manager, viewers, system tools, text editor, keyring UI
 RUN dnf install -y \
     nautilus \
