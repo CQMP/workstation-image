@@ -1,27 +1,50 @@
-\documentclass[11pt]{article}
+\documentclass[11pt,a4paper]{article}
 
-\usepackage[margin=1in]{geometry}
+% ─── Packages ────────────────────────────────────────────────────────────────
 \usepackage[T1]{fontenc}
 \usepackage{lmodern}
-\usepackage{hyperref}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage[pdftex,colorlinks=true,linkcolor=blue!60!black,
+            urlcolor=blue!60!black,pdfusetitle]{hyperref}
+\usepackage{microtype}
 \usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{mdframed}
+\usepackage{fancyhdr}
 
-\hypersetup{
-  colorlinks=true,
-  linkcolor=black,
-  urlcolor=blue
-}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[C]{\small\textit{IFT GPU Workstation --- Internal Technical Memo}}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
 
 \setlist[itemize]{leftmargin=*}
+\setlist[enumerate]{leftmargin=*}
 
-\title{IFT GPU Workstation Memo}
+% ─── Highlight boxes ──────────────────────────────────────────────────────────
+\definecolor{boxbg}{RGB}{240,246,255}
+\definecolor{boxframe}{RGB}{70,130,180}
+
+\newenvironment{keybox}[1]{%
+  \begin{mdframed}[backgroundcolor=boxbg,linecolor=boxframe,linewidth=1pt,
+    innertopmargin=6pt,innerbottommargin=6pt,
+    innerrightmargin=8pt,innerleftmargin=8pt]
+  \textbf{#1.}\quad}{\end{mdframed}}
+
+% ─── Metadata ─────────────────────────────────────────────────────────────────
+\title{\Large\bfseries IFT GPU Workstation Memo}
 \author{CQMP}
 \date{\today}
 
+% ═════════════════════════════════════════════════════════════════════════════
 \begin{document}
+
 \maketitle
 
+% ─────────────────────────────────────────────────────────────────────────────
 \section{Hardware Configuration}
+\label{sec:hardware}
+% ─────────────────────────────────────────────────────────────────────────────
 
 The workstations are Dell Pro Max Tower T2 systems installed from the shared
 workstation image.  The currently installed reference machine, Matsubara, has
@@ -42,7 +65,10 @@ the following configuration:
 The workstation inventory and assigned addresses are tracked in
 \texttt{machines.md} in the image repository.
 
+% ─────────────────────────────────────────────────────────────────────────────
 \section{System Configuration}
+\label{sec:system}
+% ─────────────────────────────────────────────────────────────────────────────
 
 The machines run CentOS Stream 9 as a bootc image.  In this model, the
 operating system is built as a container image and deployed atomically to the
@@ -50,17 +76,13 @@ host.  The machine normally boots the current deployment and keeps a rollback
 deployment available.  Updates are delivered by publishing a new image and then
 running a bootc upgrade on the workstation.
 
-The image repository is:
-
-\begin{center}
+\begin{keybox}{Image repository}
 \url{https://github.com/CQMP/workstation-image}
-\end{center}
+\end{keybox}
 
-The published image used by the installer and by bootc is:
-
-\begin{center}
+\begin{keybox}{Published image}
 \texttt{ghcr.io/cqmp/centos9-workstation:latest}
-\end{center}
+\end{keybox}
 
 The main image definition is the \texttt{Containerfile}.  The unattended
 installer is described by \texttt{ks.cfg}; it partitions the local NVMe disk,
@@ -73,7 +95,10 @@ The image also carries kernel arguments and initramfs configuration needed for
 these systems.  In particular, nouveau is blacklisted, NVIDIA DRM mode setting
 is enabled, and the initramfs is kept small enough for reliable EFI boot.
 
+% ─────────────────────────────────────────────────────────────────────────────
 \section{Package Requests and Image Changes}
+\label{sec:changes}
+% ─────────────────────────────────────────────────────────────────────────────
 
 Users should not install long-lived system packages manually on individual
 workstations.  Manual changes are local to one machine and may disappear after
@@ -98,7 +123,10 @@ sudo bootc upgrade
 sudo reboot
 \end{verbatim}
 
+% ─────────────────────────────────────────────────────────────────────────────
 \section{Logging In}
+\label{sec:login}
+% ─────────────────────────────────────────────────────────────────────────────
 
 Authentication is handled through the FUW/ITP LDAP system via SSSD.  Users log
 in with their Unix password.  Being present in LDAP is necessary but not
@@ -107,27 +135,26 @@ in to these workstations.
 
 The allow list is configured in \texttt{etc/sssd/sssd.conf} as
 \texttt{simple\_allow\_users}.  Users who need access should provide their Unix
-user name so it can be added to the image.  The current image allow list is:
+user name so it can be added to the image.
 
-\begin{center}
+\begin{keybox}{Current image allow list}
 \texttt{egull, rfarid, ajazdzewska, amarie, abalbi}
-\end{center}
+\end{keybox}
 
 Home directories and shared file systems are resolved through LDAP/autofs.  If
 login fails, the first things to check are whether the user exists in the LDAP
 Unix domain, whether the user is on the image allow list, and whether the user
 is using the Unix password rather than another institutional password.
 
+% ─────────────────────────────────────────────────────────────────────────────
 \section{Condor}
+\label{sec:condor}
+% ─────────────────────────────────────────────────────────────────────────────
 
 Each workstation is configured as an HTCondor execute node.  The local Condor
-configuration is in:
-
-\begin{center}
-\texttt{etc/condor/config.d/00-ift-execute.conf}
-\end{center}
-
-The execute node contacts \texttt{condor.gull-group.org}.  It runs only the
+configuration is in the file\\
+\texttt{etc/condor/config.d/00-ift-execute.conf}.\\
+The execute node contacts \texttt{condor.gull-group.org} and runs only the
 Condor master and startd daemons, so these machines provide execution slots but
 are not the central manager.
 
@@ -135,9 +162,9 @@ The configuration is designed for interactive workstations.  Jobs start only
 when the keyboard has been idle for at least 15 minutes and the machine load is
 low:
 
-\begin{center}
+\begin{keybox}{Start policy}
 \texttt{START = (KeyboardIdle > 900) \&\& (LoadAvg < 0.5)}
-\end{center}
+\end{keybox}
 
 If a local user returns briefly, Condor suspends the job.  If the machine stays
 active, the job is preempted and evicted.  The image enables CRIU-based
@@ -151,16 +178,14 @@ submitting GPU jobs should request the appropriate GPU resources through the
 central Condor configuration and should test their jobs with \texttt{nvidia-smi}
 or CUDA device discovery before launching large runs.
 
+% ─────────────────────────────────────────────────────────────────────────────
 \section{File System}
+\label{sec:fs}
+% ─────────────────────────────────────────────────────────────────────────────
 
 Authentication and network file-system access are handled through ITP/FUW Unix
 credentials.  The image configures SSSD for LDAP and autofs for the shared
-mount points:
-
-\begin{center}
-\texttt{/dmj}, \texttt{/expo}, and \texttt{/repo}
-\end{center}
-
+mount points \texttt{/dmj}, \texttt{/expo}, and \texttt{/repo}.
 These network file systems are appropriate for home directories, shared code,
 small inputs, and files that need central management.
 
