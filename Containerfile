@@ -249,9 +249,11 @@ RUN printf '[google-chrome]\nname=google-chrome\nbaseurl=https://dl.google.com/l
     && dnf clean all
 
 # Slack — packagecloud fedora/21 channel; the auto-detect script generates an el/9 URL
-# that doesn't exist, so we set the repo file directly
+# that doesn't exist, so we set the repo file directly.
+# Two keys required: packagecloud signs the repo metadata, Slack signs the RPM itself.
 RUN rpm --import https://packagecloud.io/slacktechnologies/slack/gpgkey \
-    && printf '[slack]\nname=Slack\nbaseurl=https://packagecloud.io/slacktechnologies/slack/fedora/21/x86_64\nenabled=1\ngpgcheck=1\ngpgkey=https://packagecloud.io/slacktechnologies/slack/gpgkey\nrepo_gpgcheck=0\n' \
+    && rpm --import https://slack.com/gpg/slack_pubkey_2019.gpg \
+    && printf '[slack]\nname=Slack\nbaseurl=https://packagecloud.io/slacktechnologies/slack/fedora/21/x86_64\nenabled=1\ngpgcheck=1\ngpgkey=https://packagecloud.io/slacktechnologies/slack/gpgkey\n       https://slack.com/gpg/slack_pubkey_2019.gpg\nrepo_gpgcheck=0\n' \
         > /etc/yum.repos.d/slack.repo \
     && dnf install -y slack \
     && dnf clean all
