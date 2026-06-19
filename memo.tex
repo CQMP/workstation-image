@@ -171,4 +171,62 @@ simulation scratch data, compilation trees, temporary files, local virtual
 environments, and other high-I/O work that does not need backup.  Important
 results should be copied back to backed-up network storage.
 
+\section{Remote Desktop Access (VNC)}
+
+The workstations run TigerVNC server.  Each user maintains a private VNC session
+on a chosen display number (e.g., \texttt{:1} on port 5901).  Sessions persist
+across disconnects: GUI applications keep running after the viewer is closed.
+
+If two users share a machine they must use different display numbers
+(\texttt{:1}, \texttt{:2}, \ldots); the corresponding TCP port is
+$5900 + \text{display number}$.
+
+\subsection*{First-time setup (on the workstation, via SSH)}
+
+Set a VNC password:
+\begin{verbatim}
+vncpasswd
+\end{verbatim}
+
+Allow your user services to run at boot even when you are not logged in:
+\begin{verbatim}
+loginctl enable-linger
+\end{verbatim}
+
+Enable and start your VNC session:
+\begin{verbatim}
+systemctl --user enable --now vncserver@:1.service
+\end{verbatim}
+
+The session will now start automatically after every reboot.
+
+\subsection*{Connecting from macOS}
+
+VNC traffic is unencrypted; always route it through an SSH tunnel.  In a
+terminal, forward the VNC port to your local machine:
+
+\begin{verbatim}
+ssh -N -L 5901:Matsubara:5901 <username>@<machine-ip>
+\end{verbatim}
+
+Keep that terminal open (or background it with \texttt{\&}).  Then open the
+built-in macOS Screen Sharing app---press \textbf{Cmd+K} in Finder, or
+search for ``Screen Sharing'' in Spotlight---and connect to:
+
+\begin{verbatim}
+vnc://localhost:5901
+\end{verbatim}
+
+\href{https://www.realvnc.com/en/connect/download/viewer/}{RealVNC Viewer}
+(free download) is a more comfortable alternative: it offers better compression,
+a saved-connections list, and clipboard integration.  After the SSH tunnel is
+running, create a new connection to \texttt{localhost:5901}.
+
+\subsection*{Session management}
+
+\begin{verbatim}
+systemctl --user stop    vncserver@:1.service   # stop the session
+systemctl --user disable vncserver@:1.service   # prevent autostart on reboot
+\end{verbatim}
+
 \end{document}

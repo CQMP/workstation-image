@@ -263,6 +263,11 @@ RUN dnf install -y \
     seahorse \
     && dnf clean all
 
+# TigerVNC server — remote desktop; each user manages their own session via systemd --user
+RUN dnf install -y \
+    tigervnc-server \
+    && dnf clean all
+
 # Image processing and PostScript tools
 RUN dnf install -y \
     ghostscript \
