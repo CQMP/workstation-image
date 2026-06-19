@@ -257,9 +257,12 @@ RUN printf '[slack]\nname=Slack\nbaseurl=https://packagecloud.io/slacktechnologi
     && dnf install -y slack \
     && dnf clean all
 
-# Element (Matrix client) — official RPM repo from packages.element.io
-RUN dnf config-manager --add-repo https://packages.element.io/rpm/element-io.repo \
-    && dnf install -y element-desktop \
+# Element (Matrix client) — RPM from GitHub releases (no maintained RPM repo exists for el9)
+RUN ELEMENT_URL=$(curl -fsSL "https://api.github.com/repos/element-hq/element-desktop/releases/latest" \
+        | python3 -c "import sys,json; assets=json.load(sys.stdin)['assets']; print(next(a['browser_download_url'] for a in assets if a['name'].endswith('.x86_64.rpm')))") \
+    && curl -fsSLo /tmp/element.rpm "${ELEMENT_URL}" \
+    && dnf localinstall -y /tmp/element.rpm \
+    && rm /tmp/element.rpm \
     && dnf clean all
 
 # GNOME utilities — file manager, viewers, system tools, text editor, keyring UI
