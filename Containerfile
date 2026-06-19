@@ -257,13 +257,17 @@ RUN printf '[slack]\nname=Slack\nbaseurl=https://packagecloud.io/slacktechnologi
     && dnf install -y slack \
     && dnf clean all
 
-# Element (Matrix client) — RPM from GitHub releases (no maintained RPM repo exists for el9)
-RUN ELEMENT_URL=$(curl -fsSL "https://api.github.com/repos/element-hq/element-desktop/releases/latest" \
-        | python3 -c "import sys,json; assets=json.load(sys.stdin)['assets']; print(next(a['browser_download_url'] for a in assets if a['name'].endswith('.x86_64.rpm')))") \
-    && curl -fsSLo /tmp/element.rpm "${ELEMENT_URL}" \
-    && dnf localinstall -y /tmp/element.rpm \
-    && rm /tmp/element.rpm \
-    && dnf clean all
+# Element (Matrix client) — tarball from packages.element.io (Element dropped RPM packaging)
+RUN curl -fsSL \
+        "https://packages.element.io/desktop/install/linux/glibc-x86-64/element-desktop.tar.gz" \
+        | tar -xz -C /opt \
+    && mv /opt/element-desktop-* /opt/element-desktop \
+    && chmod 4755 /opt/element-desktop/chrome-sandbox \
+    && curl -fsSLo /opt/element-desktop/element.png \
+        "https://raw.githubusercontent.com/element-hq/element-desktop/develop/build/icon.png" \
+    && ln -s /opt/element-desktop/element-desktop /usr/local/bin/element-desktop \
+    && printf '[Desktop Entry]\nVersion=1.0\nType=Application\nName=Element\nIcon=/opt/element-desktop/element.png\nExec=/opt/element-desktop/element-desktop %%u\nCategories=Network;InstantMessaging;\nTerminal=false\nStartupWMClass=Element\n' \
+        > /usr/share/applications/element-desktop.desktop
 
 # GNOME utilities — file manager, viewers, system tools, text editor, keyring UI
 RUN dnf install -y \
@@ -419,7 +423,8 @@ COPY etc/systemd/system/bootc-update.service /etc/systemd/system/bootc-update.se
 COPY etc/systemd/system/bootc-update.timer /etc/systemd/system/bootc-update.timer
 RUN systemctl enable data.mount \
     && systemctl enable data-homedirs.service \
-    && systemctl enable bootc-update.timer
+    && systemctl enable bootc-update.timer \
+    && systemctl mask bootc-fetch-apply-updates.timer bootc-fetch-apply-updates.service
 
 COPY etc/NetworkManager/conf.d/hostname.conf /etc/NetworkManager/conf.d/hostname.conf
 
