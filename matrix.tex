@@ -229,98 +229,205 @@ systemctl --user stop    vncserver@:1.service   # stop the session
 systemctl --user disable vncserver@:1.service   # prevent autostart on reboot
 \end{verbatim}
 
-\section{Matrix/Element Messaging Server --- Installation Status (June 2026)}
+\section{Matrix/Element Messaging Server}
 
 \subsection*{Architecture}
 
-A self-hosted Matrix homeserver is being set up to replace the group's Slack
-workspace (free plan, message history limited to 90 days).  The deployment
-consists of two components:
+The group runs a self-hosted Matrix homeserver to replace the Slack workspace
+(which has a 90-day message history limit on the free plan).  Matrix user IDs
+take the form \texttt{@user:matrix.gull-group.org}.  The client is Element
+Desktop, installed on all workstations.
+
+The deployment spans two machines:
 
 \begin{itemize}
-  \item \textbf{Tuwunel v1.7.1} (Rust Matrix homeserver) running on an Oracle
-        Cloud Always-Free VM (\texttt{gull-matrix-vnic}, 1 OCPU / 1 GB RAM,
-        Frankfurt region, public IP \texttt{79.76.114.255}).  DNS A record
-        \texttt{matrix.gull-group.org} points to this machine.  Matrix user
-        IDs will take the form \texttt{@user:matrix.gull-group.org}.
+  \item \textbf{Oracle Cloud VM} (\texttt{gull-matrix-vnic}, VM.Standard.E2.1.Micro,
+        1 OCPU / 1 GB RAM / 2 GB swap, Ubuntu 24.04 LTS, Frankfurt region).
+        Public IP \texttt{79.76.114.255}; DNS A record
+        \texttt{matrix.gull-group.org} points here.  Runs Tuwunel (Matrix
+        homeserver) and Nginx (TLS reverse proxy).  This VM is on the Oracle
+        Cloud Always-Free tier and costs nothing.
 
-  \item \textbf{MinIO} (S3-compatible object store) running in Docker on the
-        Synology NAS at \texttt{fermi.physics.lsa.umich.edu} (DS2419+, DSM
-        7.3.2), providing persistent media storage backed by local NAS disks.
+  \item \textbf{Synology NAS} (\texttt{fermi.physics.lsa.umich.edu}, DS2419+,
+        DSM 7.3.2).  Runs MinIO (S3-compatible object store) in Docker,
+        providing durable media storage on local NAS disks.  The Synology is
+        behind the University of Michigan campus firewall; it cannot accept
+        inbound connections but can call out.
 \end{itemize}
 
-The Synology sits behind the University of Michigan campus firewall (inbound
-connections blocked).  A persistent reverse SSH tunnel --- maintained by an
-\texttt{autossh} container on the Synology --- forwards
-\texttt{127.0.0.1:9000} on the Oracle VM through to MinIO on the Synology.
-Tuwunel reads and writes all uploaded media (files, images, avatars) via this
-tunnel.  MinIO is never exposed directly to the internet.
+Because the Synology is behind a firewall, a persistent \emph{reverse} SSH
+tunnel --- maintained by an \texttt{autossh} Docker container on the Synology
+--- forwards port 9000 on the Oracle VM's loopback interface through to MinIO
+on the Synology.  Tuwunel stores and retrieves all media (files, images,
+avatars) over this tunnel.  MinIO is never reachable directly from the
+internet.  The full request path is:
 
-\subsection*{Completed}
+\begin{center}
+Element \;$\to$\; HTTPS :443 \;$\to$\; Nginx \;$\to$\; Tuwunel :8008 \;$\to$\; tunnel :9000 \;$\to$\; MinIO on Synology
+\end{center}
 
-\begin{itemize}
-  \item Oracle VM provisioned; 2 GB swap file added; OS firewall opened on
-        TCP 80, 443 and UDP 51820.
-  \item DNS A record \texttt{matrix.gull-group.org $\to$ 79.76.114.255} created.
-  \item Restricted \texttt{tunnel} SSH user created on Oracle VM; autossh
-        container on Synology holds the reverse tunnel open
-        (\texttt{PermitOpen 127.0.0.1:9000} enforced in \texttt{sshd\_config}).
-  \item MinIO running on Synology (Docker, host networking, bound to
-        \texttt{127.0.0.1:9000}); bucket \texttt{matrix-media} created;
-        MinIO credentials stored in
-        \texttt{/volume1/docker/matrix/docker-compose.yml} on the Synology.
-  \item Tuwunel v1.7.1 installed via \texttt{.deb} on Oracle VM; systemd
-        service enabled.  Configured with \texttt{server\_name =
-        "matrix.gull-group.org"}, \texttt{allow\_registration = false}, and
-        S3 media storage pointing at MinIO via the tunnel.
-\end{itemize}
+\subsection*{Services and their locations}
 
-\subsection*{Remaining Tasks}
+\noindent\textbf{On the Oracle VM} (\texttt{ssh ubuntu@79.76.114.255}):
 
-\begin{enumerate}
-  \item \textbf{Fix S3 initialisation error.}  Tuwunel starts and listens on
-        \texttt{127.0.0.1:8008} but logs a builder error when connecting to
-        the S3 provider at startup.  Connectivity from the Oracle VM to MinIO
-        is confirmed (\texttt{curl http://127.0.0.1:9000/minio/health/live}
-        succeeds); the issue is in the S3 config block in
-        \texttt{/etc/tuwunel/tuwunel.toml}.
+\begin{center}
+\begin{tabular}{lll}
+\hline
+Service & systemd unit & Notes \\
+\hline
+Tuwunel & \texttt{tuwunel.service} & Listens on \texttt{127.0.0.1:8008} \\
+Nginx   & \texttt{nginx.service}   & Listens on :80 (redirect) and :443 (TLS) \\
+Certbot & \texttt{certbot.timer}   & Auto-renews TLS cert; next expiry 2026-09-18 \\
+\hline
+\end{tabular}
+\end{center}
 
-  \item \textbf{Nginx reverse proxy.}  Install Nginx on the Oracle VM; proxy
-        \texttt{https://matrix.gull-group.org} and the Matrix federation port
-        to Tuwunel on \texttt{127.0.0.1:8008}.
-
-  \item \textbf{TLS certificate.}  Obtain a Let's Encrypt certificate via
-        Certbot for \texttt{matrix.gull-group.org}.
-
-  \item \textbf{Federation check.}  Verify federation works using the Matrix
-        federation tester (\url{https://federationtester.matrix.org}).
-
-  \item \textbf{Create admin account.}  Register the first user
-        (\texttt{egull}) via the Tuwunel admin API; user self-registration is
-        disabled.
-
-  \item \textbf{Nightly rsync backup.}  Add a cron job on the Oracle VM to
-        rsync \texttt{/var/lib/tuwunel} to the Synology over the SSH tunnel
-        as a safety net for the local RocksDB database.
-
-  \item \textbf{User migration.}  Invite group members; communicate login
-        instructions and recommended client (Element desktop, installed on all
-        workstations).
-\end{enumerate}
-
-\subsection*{Key Locations}
+\noindent\textbf{On the Synology} (\texttt{fermi.physics.lsa.umich.edu}):
 
 \begin{center}
 \begin{tabular}{ll}
 \hline
-Oracle VM SSH        & \texttt{ubuntu@79.76.114.255} \\
-Tuwunel config       & \texttt{/etc/tuwunel/tuwunel.toml} on Oracle VM \\
-Tuwunel data         & \texttt{/var/lib/tuwunel} on Oracle VM \\
-Synology compose     & \texttt{/volume1/docker/matrix/docker-compose.yml} \\
-MinIO data           & \texttt{/volume1/minio/data} on Synology \\
-Tunnel key (Synology)& \texttt{/volume1/docker/matrix-tunnel/tunnel\_key} \\
+Container & Purpose \\
+\hline
+\texttt{matrix-minio}  & MinIO object store, \texttt{127.0.0.1:9000} \\
+\texttt{matrix-tunnel} & autossh reverse tunnel to Oracle VM \\
 \hline
 \end{tabular}
 \end{center}
+
+Both containers are defined in
+\texttt{/volume1/docker/matrix/docker-compose.yml} and restart automatically.
+
+\subsection*{Key file locations}
+
+\begin{center}
+\begin{tabular}{ll}
+\hline
+\multicolumn{2}{l}{\textit{Oracle VM}} \\
+\hline
+Tuwunel config        & \texttt{/etc/tuwunel/tuwunel.toml} \\
+Tuwunel database      & \texttt{/var/lib/tuwunel} (RocksDB) \\
+Nginx site config     & \texttt{/etc/nginx/sites-available/matrix} \\
+TLS certificate       & \texttt{/etc/letsencrypt/live/matrix.gull-group.org/} \\
+SSH tunnel user       & \texttt{/home/tunnel/.ssh/authorized\_keys} \\
+SSH tunnel restriction& \texttt{/etc/ssh/sshd\_config} (Match User tunnel block) \\
+\hline
+\multicolumn{2}{l}{\textit{Synology}} \\
+\hline
+Docker compose file   & \texttt{/volume1/docker/matrix/docker-compose.yml} \\
+MinIO data            & \texttt{/volume1/minio/data} \\
+Tunnel SSH key        & \texttt{/volume1/docker/matrix-tunnel/tunnel\_key} \\
+\hline
+\end{tabular}
+\end{center}
+
+\subsection*{Key configuration notes}
+
+\textbf{Tuwunel S3 block} --- MinIO runs over plain HTTP (no TLS) because the
+tunnel is already on loopback.  Tuwunel's S3 client defaults to
+\texttt{use\_https = true} and will fail with a cryptic ``builder error'' if
+this is not overridden.  The working config block in
+\texttt{/etc/tuwunel/tuwunel.toml} is:
+
+\begin{verbatim}
+media_storage_providers = ["media_on_s3"]
+store_media_on_providers = ["media_on_s3"]
+
+[global.storage_provider.media_on_s3.s3]
+bucket = "matrix-media"
+region = "us-east-1"
+key = "matrix"
+secret = "<see docker-compose.yml on Synology>"
+endpoint = "http://127.0.0.1:9000"
+use_vhost_request = false
+use_https = false
+\end{verbatim}
+
+\textbf{Nginx federation} --- Matrix federation runs over HTTPS port 443 (not
+the default port 8448) using a \texttt{.well-known/matrix/server} file served
+by Nginx.  Port 8448 does not need to be open.
+
+\textbf{SSH tunnel restriction} --- the \texttt{tunnel} user on the Oracle VM
+is locked to port forwarding only.  The relevant block in
+\texttt{/etc/ssh/sshd\_config}:
+
+\begin{verbatim}
+Match User tunnel
+    AllowTcpForwarding yes
+    X11Forwarding no
+    PermitTTY no
+    PermitOpen 127.0.0.1:9000
+\end{verbatim}
+
+\subsection*{Adding a user}
+
+User self-registration is disabled.  To create an account, stop Tuwunel, run
+the admin command, then restart:
+
+\begin{verbatim}
+systemctl stop tuwunel
+tuwunel --config /etc/tuwunel/tuwunel.toml \
+    --execute "users create-user <username> <password>"
+systemctl start tuwunel
+\end{verbatim}
+
+The first user created is automatically granted admin privileges.  Subsequent
+users are ordinary users; grant admin via the Element admin panel or the
+\texttt{users make-user-admin} command.
+
+\subsection*{Debugging checklist}
+
+\textbf{Tuwunel not responding:}
+\begin{verbatim}
+systemctl status tuwunel
+journalctl -u tuwunel -n 50
+\end{verbatim}
+
+\textbf{Media uploads failing / S3 errors:}
+\begin{verbatim}
+# Check tunnel is up
+ss -tlnp | grep 9000
+# Check MinIO health
+curl http://127.0.0.1:9000/minio/health/live
+\end{verbatim}
+If port 9000 is not listening, the \texttt{matrix-tunnel} container on the
+Synology has dropped.  Log into the Synology via SSH or Container Manager and
+restart it:
+\begin{verbatim}
+docker compose -f /volume1/docker/matrix/docker-compose.yml restart tunnel
+\end{verbatim}
+If port 9000 is listening but MinIO returns errors, restart the
+\texttt{matrix-minio} container the same way.
+
+\textbf{Nginx / TLS errors:}
+\begin{verbatim}
+nginx -t                  # check config syntax
+journalctl -u nginx -n 30
+certbot certificates      # check cert expiry
+\end{verbatim}
+
+\textbf{TLS certificate renewal} is handled automatically by
+\texttt{certbot.timer}.  The certificate expires 2026-09-18; Certbot will
+renew it at 60 days before expiry.  If manual renewal is needed:
+\begin{verbatim}
+systemctl stop nginx
+certbot renew --standalone
+systemctl start nginx
+\end{verbatim}
+
+\textbf{Full health check from outside:}
+\begin{verbatim}
+curl https://matrix.gull-group.org/.well-known/matrix/server
+curl https://matrix.gull-group.org/_matrix/client/versions
+\end{verbatim}
+The first should return \texttt{\{"m.server":"matrix.gull-group.org:443"\}};
+the second should return a JSON list of supported Matrix protocol versions.
+
+\subsection*{Pending: database backup}
+
+The Tuwunel RocksDB database at \texttt{/var/lib/tuwunel} on the Oracle VM is
+not yet backed up.  A nightly rsync to the Synology over the SSH tunnel should
+be added.  Media is already safe (stored on the Synology via MinIO); only the
+RocksDB database (user accounts, room state, message indices) needs this backup.
 
 \end{document}
