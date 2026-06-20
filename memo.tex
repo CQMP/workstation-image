@@ -229,4 +229,98 @@ systemctl --user stop    vncserver@:1.service   # stop the session
 systemctl --user disable vncserver@:1.service   # prevent autostart on reboot
 \end{verbatim}
 
+\section{Matrix/Element Messaging Server --- Installation Status (June 2026)}
+
+\subsection*{Architecture}
+
+A self-hosted Matrix homeserver is being set up to replace the group's Slack
+workspace (free plan, message history limited to 90 days).  The deployment
+consists of two components:
+
+\begin{itemize}
+  \item \textbf{Tuwunel v1.7.1} (Rust Matrix homeserver) running on an Oracle
+        Cloud Always-Free VM (\texttt{gull-matrix-vnic}, 1 OCPU / 1 GB RAM,
+        Frankfurt region, public IP \texttt{79.76.114.255}).  DNS A record
+        \texttt{matrix.gull-group.org} points to this machine.  Matrix user
+        IDs will take the form \texttt{@user:matrix.gull-group.org}.
+
+  \item \textbf{MinIO} (S3-compatible object store) running in Docker on the
+        Synology NAS at \texttt{fermi.physics.lsa.umich.edu} (DS2419+, DSM
+        7.3.2), providing persistent media storage backed by local NAS disks.
+\end{itemize}
+
+The Synology sits behind the University of Michigan campus firewall (inbound
+connections blocked).  A persistent reverse SSH tunnel --- maintained by an
+\texttt{autossh} container on the Synology --- forwards
+\texttt{127.0.0.1:9000} on the Oracle VM through to MinIO on the Synology.
+Tuwunel reads and writes all uploaded media (files, images, avatars) via this
+tunnel.  MinIO is never exposed directly to the internet.
+
+\subsection*{Completed}
+
+\begin{itemize}
+  \item Oracle VM provisioned; 2 GB swap file added; OS firewall opened on
+        TCP 80, 443 and UDP 51820.
+  \item DNS A record \texttt{matrix.gull-group.org $\to$ 79.76.114.255} created.
+  \item Restricted \texttt{tunnel} SSH user created on Oracle VM; autossh
+        container on Synology holds the reverse tunnel open
+        (\texttt{PermitOpen 127.0.0.1:9000} enforced in \texttt{sshd\_config}).
+  \item MinIO running on Synology (Docker, host networking, bound to
+        \texttt{127.0.0.1:9000}); bucket \texttt{matrix-media} created;
+        MinIO credentials stored in
+        \texttt{/volume1/docker/matrix/docker-compose.yml} on the Synology.
+  \item Tuwunel v1.7.1 installed via \texttt{.deb} on Oracle VM; systemd
+        service enabled.  Configured with \texttt{server\_name =
+        "matrix.gull-group.org"}, \texttt{allow\_registration = false}, and
+        S3 media storage pointing at MinIO via the tunnel.
+\end{itemize}
+
+\subsection*{Remaining Tasks}
+
+\begin{enumerate}
+  \item \textbf{Fix S3 initialisation error.}  Tuwunel starts and listens on
+        \texttt{127.0.0.1:8008} but logs a builder error when connecting to
+        the S3 provider at startup.  Connectivity from the Oracle VM to MinIO
+        is confirmed (\texttt{curl http://127.0.0.1:9000/minio/health/live}
+        succeeds); the issue is in the S3 config block in
+        \texttt{/etc/tuwunel/tuwunel.toml}.
+
+  \item \textbf{Nginx reverse proxy.}  Install Nginx on the Oracle VM; proxy
+        \texttt{https://matrix.gull-group.org} and the Matrix federation port
+        to Tuwunel on \texttt{127.0.0.1:8008}.
+
+  \item \textbf{TLS certificate.}  Obtain a Let's Encrypt certificate via
+        Certbot for \texttt{matrix.gull-group.org}.
+
+  \item \textbf{Federation check.}  Verify federation works using the Matrix
+        federation tester (\url{https://federationtester.matrix.org}).
+
+  \item \textbf{Create admin account.}  Register the first user
+        (\texttt{egull}) via the Tuwunel admin API; user self-registration is
+        disabled.
+
+  \item \textbf{Nightly rsync backup.}  Add a cron job on the Oracle VM to
+        rsync \texttt{/var/lib/tuwunel} to the Synology over the SSH tunnel
+        as a safety net for the local RocksDB database.
+
+  \item \textbf{User migration.}  Invite group members; communicate login
+        instructions and recommended client (Element desktop, installed on all
+        workstations).
+\end{enumerate}
+
+\subsection*{Key Locations}
+
+\begin{center}
+\begin{tabular}{ll}
+\hline
+Oracle VM SSH        & \texttt{ubuntu@79.76.114.255} \\
+Tuwunel config       & \texttt{/etc/tuwunel/tuwunel.toml} on Oracle VM \\
+Tuwunel data         & \texttt{/var/lib/tuwunel} on Oracle VM \\
+Synology compose     & \texttt{/volume1/docker/matrix/docker-compose.yml} \\
+MinIO data           & \texttt{/volume1/minio/data} on Synology \\
+Tunnel key (Synology)& \texttt{/volume1/docker/matrix-tunnel/tunnel\_key} \\
+\hline
+\end{tabular}
+\end{center}
+
 \end{document}
