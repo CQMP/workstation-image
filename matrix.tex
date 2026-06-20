@@ -423,11 +423,30 @@ curl https://matrix.gull-group.org/_matrix/client/versions
 The first should return \texttt{\{"m.server":"matrix.gull-group.org:443"\}};
 the second should return a JSON list of supported Matrix protocol versions.
 
-\subsection*{Pending: database backup}
+\subsection*{Database backup}
 
-The Tuwunel RocksDB database at \texttt{/var/lib/tuwunel} on the Oracle VM is
-not yet backed up.  A nightly rsync to the Synology over the SSH tunnel should
-be added.  Media is already safe (stored on the Synology via MinIO); only the
-RocksDB database (user accounts, room state, message indices) needs this backup.
+Media is stored durably on the Synology via MinIO.  The Tuwunel RocksDB
+database at \texttt{/var/lib/tuwunel} on the Oracle VM (user accounts, room
+state, message indices) is backed up nightly to the Synology via rsync.
+
+A cron job runs at 03:00 daily on the Synology:
+
+\begin{verbatim}
+0  3  *  *  *  root  /volume1/docker/matrix-tunnel/backup.sh \
+    >> /var/log/matrix-backup.log 2>&1
+\end{verbatim}
+
+The script (\texttt{/volume1/docker/matrix-tunnel/backup.sh}) rsyncs
+\texttt{ubuntu@79.76.114.255:/var/lib/tuwunel/} to
+\texttt{/volume1/matrix-backup/tuwunel/} using the dedicated key at
+\texttt{/volume1/docker/matrix-tunnel/backup\_key}.  For this to work,
+\texttt{ubuntu} must be a member of the \texttt{tuwunel} group on the Oracle
+VM (\texttt{usermod -aG tuwunel ubuntu}) and \texttt{/var/lib/tuwunel} must
+be mode \texttt{0750}.
+
+Check backup logs on the Synology with:
+\begin{verbatim}
+tail /var/log/matrix-backup.log
+\end{verbatim}
 
 \end{document}
