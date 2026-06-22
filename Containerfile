@@ -372,6 +372,11 @@ RUN mkdir -p /var/lib/texmf/web2c \
     && ln -sf pdftex/pdflatex.fmt /var/lib/texmf/web2c/pdflatex.fmt \
     && mktexlsr /var/lib/texmf
 
+# Intel i915 firmware ships as .xz in the linux-firmware RPM. CentOS 9's 5.14 kernel
+# may not have CONFIG_FW_LOADER_COMPRESS_XZ enabled, so decompress everything under
+# i915/ so the driver always finds the plain .bin files it requests.
+RUN find /usr/lib/firmware/i915 -name "*.xz" -exec xz -d {} \;
+
 # Small config adjustments — at the end to avoid cache churn on expensive layers above
 # Keep both the bootc /etc defaults and the immutable unit fallback pointed at GDM.
 RUN ln -sf /usr/lib/systemd/system/graphical.target /etc/systemd/system/default.target \
@@ -424,7 +429,7 @@ COPY etc/systemd/system/bootc-update.timer /etc/systemd/system/bootc-update.time
 RUN systemctl enable data.mount \
     && systemctl enable data-homedirs.service \
     && systemctl enable bootc-update.timer \
-    && systemctl mask bootc-fetch-apply-updates.timer bootc-fetch-apply-updates.service
+    && systemctl mask bootc-fetch-apply-updates.timer bootc-fetch-apply-updates.service kdump.service
 
 COPY etc/NetworkManager/conf.d/hostname.conf /etc/NetworkManager/conf.d/hostname.conf
 
