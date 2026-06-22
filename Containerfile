@@ -214,12 +214,20 @@ RUN KVER=$(rpm -q kernel --queryformat '%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort 
     && find /usr/lib/modules/${KVER} -name "nvidia.ko*" | grep -q . \
     && mkdir -p /tmp/fw-save \
     && find /usr/lib/firmware -maxdepth 1 -mindepth 1 -type d -exec mv {} /tmp/fw-save/ \; \
+    && mkdir -p /usr/lib/firmware/i915 \
+    && xz -dc /tmp/fw-save/i915/mtl_dmc.bin.xz > /usr/lib/firmware/i915/mtl_dmc.bin \
+    && xz -dc /tmp/fw-save/i915/mtl_guc_70.bin.xz > /usr/lib/firmware/i915/mtl_guc_70.bin \
     && dracut --force \
         --omit-drivers 'nouveau nvidia nvidia_drm nvidia_uvm nvidia_modeset' \
+        --install '/usr/lib/firmware/i915/mtl_dmc.bin /usr/lib/firmware/i915/mtl_guc_70.bin' \
         /boot/initramfs-${KVER}.img ${KVER} \
     && install -m 0644 /boot/initramfs-${KVER}.img /usr/lib/modules/${KVER}/initramfs.img \
+    && lsinitrd /boot/initramfs-${KVER}.img | grep -q 'usr/lib/firmware/i915/mtl_dmc.bin' \
+    && lsinitrd /boot/initramfs-${KVER}.img | grep -q 'usr/lib/firmware/i915/mtl_guc_70.bin' \
     && ls -lh /boot/initramfs-${KVER}.img \
     && ls -lh /usr/lib/modules/${KVER}/initramfs.img \
+    && rm /usr/lib/firmware/i915/mtl_dmc.bin /usr/lib/firmware/i915/mtl_guc_70.bin \
+    && rmdir /usr/lib/firmware/i915 \
     && find /tmp/fw-save -maxdepth 1 -mindepth 1 -exec mv {} /usr/lib/firmware/ \; \
     && rpm -e --nodeps kernel-devel-${KVER} kernel-devel-matched-${KVER} \
     && dnf clean all
