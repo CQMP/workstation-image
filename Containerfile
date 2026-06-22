@@ -373,9 +373,12 @@ RUN mkdir -p /var/lib/texmf/web2c \
     && mktexlsr /var/lib/texmf
 
 # Intel i915 firmware ships as .xz in the linux-firmware RPM. CentOS 9's 5.14 kernel
-# may not have CONFIG_FW_LOADER_COMPRESS_XZ enabled, so decompress everything under
-# i915/ so the driver always finds the plain .bin files it requests.
-RUN find /usr/lib/firmware/i915 -name "*.xz" -exec xz -d {} \;
+# may not have CONFIG_FW_LOADER_COMPRESS_XZ enabled, so create uncompressed copies.
+# Do not use `xz -d`: RPM firmware files have multiple hard links, which xz skips.
+RUN find /usr/lib/firmware/i915 -type f -name "*.xz" -exec \
+        sh -c 'for source do xz -dc "$source" > "${source%.xz}"; done' sh {} + \
+    && test -s /usr/lib/firmware/i915/mtl_dmc.bin \
+    && test -s /usr/lib/firmware/i915/mtl_guc_70.bin
 
 # Small config adjustments — at the end to avoid cache churn on expensive layers above
 # Keep both the bootc /etc defaults and the immutable unit fallback pointed at GDM.
