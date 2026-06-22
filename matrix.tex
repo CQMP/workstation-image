@@ -1,0 +1,452 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{hyperref}
+\usepackage{enumitem}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=black,
+  urlcolor=blue
+}
+
+\setlist[itemize]{leftmargin=*}
+
+\title{IFT GPU Workstation Memo}
+\author{CQMP}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section{Hardware Configuration}
+
+The workstations are Dell Pro Max Tower T2 systems installed from the shared
+workstation image.  The currently installed reference machine, Matsubara, has
+the following configuration:
+
+\begin{itemize}
+  \item CPU: Intel Core Ultra 7 265, 20 cores, one socket.
+  \item Memory: 30 GiB RAM plus 8 GiB compressed swap.
+  \item Local storage: one Kioxia XG10d 1 TB NVMe device.  The standard
+        installation uses a 512 MB EFI partition, a 1 GB \texttt{/boot}
+        partition, a 50 GB operating-system partition, and the remainder as
+        \texttt{/data}.
+  \item Graphics: integrated Intel Arrow Lake-S graphics plus an NVIDIA
+        RTX 2000 Ada Generation GPU.
+  \item Network: Intel I219-LM Ethernet.
+\end{itemize}
+
+The workstation inventory and assigned addresses are tracked in
+\texttt{machines.md} in the image repository.
+
+\section{System Configuration}
+
+The machines run CentOS Stream 9 as a bootc image.  In this model, the
+operating system is built as a container image and deployed atomically to the
+host.  The machine normally boots the current deployment and keeps a rollback
+deployment available.  Updates are delivered by publishing a new image and then
+running a bootc upgrade on the workstation.
+
+The image repository is:
+
+\begin{center}
+\url{https://github.com/CQMP/workstation-image}
+\end{center}
+
+The published image used by the installer and by bootc is:
+
+\begin{center}
+\texttt{ghcr.io/cqmp/centos9-workstation:latest}
+\end{center}
+
+The main image definition is the \texttt{Containerfile}.  The unattended
+installer is described by \texttt{ks.cfg}; it partitions the local NVMe disk,
+pulls the image above, and installs the bootc system.  The image includes GNOME
+and GDM, NVIDIA drivers and CUDA tooling, SSH, LDAP/SSSD authentication,
+autofs/NFS integration, HTCondor, compilers, MPI stacks, Python scientific
+packages, browsers, editors, and common desktop tools.
+
+The image also carries kernel arguments and initramfs configuration needed for
+these systems.  In particular, nouveau is blacklisted, NVIDIA DRM mode setting
+is enabled, and the initramfs is kept small enough for reliable EFI boot.
+
+\section{Package Requests and Image Changes}
+
+Users should not install long-lived system packages manually on individual
+workstations.  Manual changes are local to one machine and may disappear after
+reinstallation or diverge from the rest of the pool.  Instead, package requests
+and system configuration changes should be made through the image repository.
+
+The preferred workflow is:
+
+\begin{enumerate}
+  \item Fork \url{https://github.com/CQMP/workstation-image}.
+  \item Modify the \texttt{Containerfile} or the relevant file under
+        \texttt{etc/}, \texttt{usr/}, or another tracked directory.
+  \item Build or inspect the change locally when practical.
+  \item Submit a pull request against the main repository.
+\end{enumerate}
+
+After a pull request is merged, GitHub Actions rebuilds and publishes the image.
+Machines can then receive the update with:
+
+\begin{verbatim}
+sudo bootc upgrade
+sudo reboot
+\end{verbatim}
+
+\section{Logging In}
+
+Authentication is handled through the FUW/ITP LDAP system via SSSD.  Users log
+in with their Unix password.  Being present in LDAP is necessary but not
+sufficient: the image also contains an explicit allow list of users who may log
+in to these workstations.
+
+The allow list is configured in \texttt{etc/sssd/sssd.conf} as
+\texttt{simple\_allow\_users}.  Users who need access should provide their Unix
+user name so it can be added to the image.  The current image allow list is:
+
+\begin{center}
+\texttt{egull, rfarid, ajazdzewska, amarie, abalbi}
+\end{center}
+
+Home directories and shared file systems are resolved through LDAP/autofs.  If
+login fails, the first things to check are whether the user exists in the LDAP
+Unix domain, whether the user is on the image allow list, and whether the user
+is using the Unix password rather than another institutional password.
+
+\section{Condor}
+
+Each workstation is configured as an HTCondor execute node.  The local Condor
+configuration is in:
+
+\begin{center}
+\texttt{etc/condor/config.d/00-ift-execute.conf}
+\end{center}
+
+The execute node contacts \texttt{condor.gull-group.org}.  It runs only the
+Condor master and startd daemons, so these machines provide execution slots but
+are not the central manager.
+
+The configuration is designed for interactive workstations.  Jobs start only
+when the keyboard has been idle for at least 15 minutes and the machine load is
+low:
+
+\begin{center}
+\texttt{START = (KeyboardIdle > 900) \&\& (LoadAvg < 0.5)}
+\end{center}
+
+If a local user returns briefly, Condor suspends the job.  If the machine stays
+active, the job is preempted and evicted.  The image enables CRIU-based
+checkpointing and installs NVIDIA's \texttt{cuda-checkpoint} helper so GPU jobs
+can be checkpointed during eviction when supported by the workload.  The
+configured vacate time is one hour, giving checkpointing time to complete before
+the job is killed.
+
+The NVIDIA GPU is intended to be available to CUDA and Condor jobs.  Users
+submitting GPU jobs should request the appropriate GPU resources through the
+central Condor configuration and should test their jobs with \texttt{nvidia-smi}
+or CUDA device discovery before launching large runs.
+
+\section{File System}
+
+Authentication and network file-system access are handled through ITP/FUW Unix
+credentials.  The image configures SSSD for LDAP and autofs for the shared
+mount points:
+
+\begin{center}
+\texttt{/dmj}, \texttt{/expo}, and \texttt{/repo}
+\end{center}
+
+These network file systems are appropriate for home directories, shared code,
+small inputs, and files that need central management.
+
+Each workstation also has a fast local NVMe scratch disk mounted at
+\texttt{/data}.  The standard installation creates per-user directories there
+for allowed users.  This disk is not backed up.  It should be used for
+simulation scratch data, compilation trees, temporary files, local virtual
+environments, and other high-I/O work that does not need backup.  Important
+results should be copied back to backed-up network storage.
+
+\section{Remote Desktop Access (VNC)}
+
+The workstations run TigerVNC server.  Each user maintains a private VNC session
+on a chosen display number (e.g., \texttt{:1} on port 5901).  Sessions persist
+across disconnects: GUI applications keep running after the viewer is closed.
+
+If two users share a machine they must use different display numbers
+(\texttt{:1}, \texttt{:2}, \ldots); the corresponding TCP port is
+$5900 + \text{display number}$.
+
+\subsection*{First-time setup (on the workstation, via SSH)}
+
+Set a VNC password:
+\begin{verbatim}
+vncpasswd
+\end{verbatim}
+
+Allow your user services to run at boot even when you are not logged in:
+\begin{verbatim}
+loginctl enable-linger
+\end{verbatim}
+
+Enable and start your VNC session:
+\begin{verbatim}
+systemctl --user enable --now vncserver@:1.service
+\end{verbatim}
+
+The session will now start automatically after every reboot.
+
+\subsection*{Connecting from macOS}
+
+VNC traffic is unencrypted; always route it through an SSH tunnel.  In a
+terminal, forward the VNC port to your local machine:
+
+\begin{verbatim}
+ssh -N -L 5901:Matsubara:5901 <username>@<machine-ip>
+\end{verbatim}
+
+Keep that terminal open (or background it with \texttt{\&}).  Then open the
+built-in macOS Screen Sharing app---press \textbf{Cmd+K} in Finder, or
+search for ``Screen Sharing'' in Spotlight---and connect to:
+
+\begin{verbatim}
+vnc://localhost:5901
+\end{verbatim}
+
+\href{https://www.realvnc.com/en/connect/download/viewer/}{RealVNC Viewer}
+(free download) is a more comfortable alternative: it offers better compression,
+a saved-connections list, and clipboard integration.  After the SSH tunnel is
+running, create a new connection to \texttt{localhost:5901}.
+
+\subsection*{Session management}
+
+\begin{verbatim}
+systemctl --user stop    vncserver@:1.service   # stop the session
+systemctl --user disable vncserver@:1.service   # prevent autostart on reboot
+\end{verbatim}
+
+\section{Matrix/Element Messaging Server}
+
+\subsection*{Architecture}
+
+The group runs a self-hosted Matrix homeserver to replace the Slack workspace
+(which has a 90-day message history limit on the free plan).  Matrix user IDs
+take the form \texttt{@user:matrix.gull-group.org}.  The client is Element
+Desktop, installed on all workstations.
+
+The deployment spans two machines:
+
+\begin{itemize}
+  \item \textbf{Oracle Cloud VM} (\texttt{gull-matrix-vnic}, VM.Standard.E2.1.Micro,
+        1 OCPU / 1 GB RAM / 2 GB swap, Ubuntu 24.04 LTS, Frankfurt region).
+        Public IP \texttt{79.76.114.255}; DNS A record
+        \texttt{matrix.gull-group.org} points here.  Runs Tuwunel (Matrix
+        homeserver) and Nginx (TLS reverse proxy).  This VM is on the Oracle
+        Cloud Always-Free tier and costs nothing.
+
+  \item \textbf{Synology NAS} (\texttt{fermi.physics.lsa.umich.edu}, DS2419+,
+        DSM 7.3.2).  Runs MinIO (S3-compatible object store) in Docker,
+        providing durable media storage on local NAS disks.  The Synology is
+        behind the University of Michigan campus firewall; it cannot accept
+        inbound connections but can call out.
+\end{itemize}
+
+Because the Synology is behind a firewall, a persistent \emph{reverse} SSH
+tunnel --- maintained by an \texttt{autossh} Docker container on the Synology
+--- forwards port 9000 on the Oracle VM's loopback interface through to MinIO
+on the Synology.  Tuwunel stores and retrieves all media (files, images,
+avatars) over this tunnel.  MinIO is never reachable directly from the
+internet.  The full request path is:
+
+\begin{center}
+Element \;$\to$\; HTTPS :443 \;$\to$\; Nginx \;$\to$\; Tuwunel :8008 \;$\to$\; tunnel :9000 \;$\to$\; MinIO on Synology
+\end{center}
+
+\subsection*{Services and their locations}
+
+\noindent\textbf{On the Oracle VM} (\texttt{ssh ubuntu@79.76.114.255}):
+
+\begin{center}
+\begin{tabular}{lll}
+\hline
+Service & systemd unit & Notes \\
+\hline
+Tuwunel & \texttt{tuwunel.service} & Listens on \texttt{127.0.0.1:8008} \\
+Nginx   & \texttt{nginx.service}   & Listens on :80 (redirect) and :443 (TLS) \\
+Certbot & \texttt{certbot.timer}   & Auto-renews TLS cert; next expiry 2026-09-18 \\
+\hline
+\end{tabular}
+\end{center}
+
+\noindent\textbf{On the Synology} (\texttt{fermi.physics.lsa.umich.edu}):
+
+\begin{center}
+\begin{tabular}{ll}
+\hline
+Container & Purpose \\
+\hline
+\texttt{matrix-minio}  & MinIO object store, \texttt{127.0.0.1:9000} \\
+\texttt{matrix-tunnel} & autossh reverse tunnel to Oracle VM \\
+\hline
+\end{tabular}
+\end{center}
+
+Both containers are defined in
+\texttt{/volume1/docker/matrix/docker-compose.yml} and restart automatically.
+
+\subsection*{Key file locations}
+
+\begin{center}
+\begin{tabular}{ll}
+\hline
+\multicolumn{2}{l}{\textit{Oracle VM}} \\
+\hline
+Tuwunel config        & \texttt{/etc/tuwunel/tuwunel.toml} \\
+Tuwunel database      & \texttt{/var/lib/tuwunel} (RocksDB) \\
+Nginx site config     & \texttt{/etc/nginx/sites-available/matrix} \\
+TLS certificate       & \texttt{/etc/letsencrypt/live/matrix.gull-group.org/} \\
+SSH tunnel user       & \texttt{/home/tunnel/.ssh/authorized\_keys} \\
+SSH tunnel restriction& \texttt{/etc/ssh/sshd\_config} (Match User tunnel block) \\
+\hline
+\multicolumn{2}{l}{\textit{Synology}} \\
+\hline
+Docker compose file   & \texttt{/volume1/docker/matrix/docker-compose.yml} \\
+MinIO data            & \texttt{/volume1/minio/data} \\
+Tunnel SSH key        & \texttt{/volume1/docker/matrix-tunnel/tunnel\_key} \\
+\hline
+\end{tabular}
+\end{center}
+
+\subsection*{Key configuration notes}
+
+\textbf{Tuwunel S3 block} --- MinIO runs over plain HTTP (no TLS) because the
+tunnel is already on loopback.  Tuwunel's S3 client defaults to
+\texttt{use\_https = true} and will fail with a cryptic ``builder error'' if
+this is not overridden.  The working config block in
+\texttt{/etc/tuwunel/tuwunel.toml} is:
+
+\begin{verbatim}
+media_storage_providers = ["media_on_s3"]
+store_media_on_providers = ["media_on_s3"]
+
+[global.storage_provider.media_on_s3.s3]
+bucket = "matrix-media"
+region = "us-east-1"
+key = "matrix"
+secret = "<see docker-compose.yml on Synology>"
+endpoint = "http://127.0.0.1:9000"
+use_vhost_request = false
+use_https = false
+\end{verbatim}
+
+\textbf{Nginx federation} --- Matrix federation runs over HTTPS port 443 (not
+the default port 8448) using a \texttt{.well-known/matrix/server} file served
+by Nginx.  Port 8448 does not need to be open.
+
+\textbf{SSH tunnel restriction} --- the \texttt{tunnel} user on the Oracle VM
+is locked to port forwarding only.  The relevant block in
+\texttt{/etc/ssh/sshd\_config}:
+
+\begin{verbatim}
+Match User tunnel
+    AllowTcpForwarding yes
+    X11Forwarding no
+    PermitTTY no
+    PermitOpen 127.0.0.1:9000
+\end{verbatim}
+
+\subsection*{Adding a user}
+
+User self-registration is disabled.  To create an account, stop Tuwunel, run
+the admin command, then restart:
+
+\begin{verbatim}
+systemctl stop tuwunel
+tuwunel --config /etc/tuwunel/tuwunel.toml \
+    --execute "users create-user <username> <password>"
+systemctl start tuwunel
+\end{verbatim}
+
+The first user created is automatically granted admin privileges.  Subsequent
+users are ordinary users; grant admin via the Element admin panel or the
+\texttt{users make-user-admin} command.
+
+\subsection*{Debugging checklist}
+
+\textbf{Tuwunel not responding:}
+\begin{verbatim}
+systemctl status tuwunel
+journalctl -u tuwunel -n 50
+\end{verbatim}
+
+\textbf{Media uploads failing / S3 errors:}
+\begin{verbatim}
+# Check tunnel is up
+ss -tlnp | grep 9000
+# Check MinIO health
+curl http://127.0.0.1:9000/minio/health/live
+\end{verbatim}
+If port 9000 is not listening, the \texttt{matrix-tunnel} container on the
+Synology has dropped.  Log into the Synology via SSH or Container Manager and
+restart it:
+\begin{verbatim}
+docker compose -f /volume1/docker/matrix/docker-compose.yml restart tunnel
+\end{verbatim}
+If port 9000 is listening but MinIO returns errors, restart the
+\texttt{matrix-minio} container the same way.
+
+\textbf{Nginx / TLS errors:}
+\begin{verbatim}
+nginx -t                  # check config syntax
+journalctl -u nginx -n 30
+certbot certificates      # check cert expiry
+\end{verbatim}
+
+\textbf{TLS certificate renewal} is handled automatically by
+\texttt{certbot.timer}.  The certificate expires 2026-09-18; Certbot will
+renew it at 60 days before expiry.  If manual renewal is needed:
+\begin{verbatim}
+systemctl stop nginx
+certbot renew --standalone
+systemctl start nginx
+\end{verbatim}
+
+\textbf{Full health check from outside:}
+\begin{verbatim}
+curl https://matrix.gull-group.org/.well-known/matrix/server
+curl https://matrix.gull-group.org/_matrix/client/versions
+\end{verbatim}
+The first should return \texttt{\{"m.server":"matrix.gull-group.org:443"\}};
+the second should return a JSON list of supported Matrix protocol versions.
+
+\subsection*{Database backup}
+
+Media is stored durably on the Synology via MinIO.  The Tuwunel RocksDB
+database at \texttt{/var/lib/tuwunel} on the Oracle VM (user accounts, room
+state, message indices) is backed up nightly to the Synology via rsync.
+
+A cron job runs at 03:00 daily on the Synology:
+
+\begin{verbatim}
+0  3  *  *  *  root  /volume1/docker/matrix-tunnel/backup.sh \
+    >> /var/log/matrix-backup.log 2>&1
+\end{verbatim}
+
+The script (\texttt{/volume1/docker/matrix-tunnel/backup.sh}) rsyncs
+\texttt{ubuntu@79.76.114.255:/var/lib/tuwunel/} to
+\texttt{/volume1/matrix-backup/tuwunel/} using the dedicated key at
+\texttt{/volume1/docker/matrix-tunnel/backup\_key}.  For this to work,
+\texttt{ubuntu} must be a member of the \texttt{tuwunel} group on the Oracle
+VM (\texttt{usermod -aG tuwunel ubuntu}) and \texttt{/var/lib/tuwunel} must
+be mode \texttt{0750}.
+
+Check backup logs on the Synology with:
+\begin{verbatim}
+tail /var/log/matrix-backup.log
+\end{verbatim}
+
+\end{document}

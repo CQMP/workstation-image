@@ -214,12 +214,20 @@ RUN KVER=$(rpm -q kernel --queryformat '%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort 
     && find /usr/lib/modules/${KVER} -name "nvidia.ko*" | grep -q . \
     && mkdir -p /tmp/fw-save \
     && find /usr/lib/firmware -maxdepth 1 -mindepth 1 -type d -exec mv {} /tmp/fw-save/ \; \
+    && mkdir -p /usr/lib/firmware/i915 \
+    && xz -dc /tmp/fw-save/i915/mtl_dmc.bin.xz > /usr/lib/firmware/i915/mtl_dmc.bin \
+    && xz -dc /tmp/fw-save/i915/mtl_guc_70.bin.xz > /usr/lib/firmware/i915/mtl_guc_70.bin \
     && dracut --force \
         --omit-drivers 'nouveau nvidia nvidia_drm nvidia_uvm nvidia_modeset' \
+        --install '/usr/lib/firmware/i915/mtl_dmc.bin /usr/lib/firmware/i915/mtl_guc_70.bin' \
         /boot/initramfs-${KVER}.img ${KVER} \
     && install -m 0644 /boot/initramfs-${KVER}.img /usr/lib/modules/${KVER}/initramfs.img \
+    && lsinitrd /boot/initramfs-${KVER}.img | grep -q 'usr/lib/firmware/i915/mtl_dmc.bin' \
+    && lsinitrd /boot/initramfs-${KVER}.img | grep -q 'usr/lib/firmware/i915/mtl_guc_70.bin' \
     && ls -lh /boot/initramfs-${KVER}.img \
     && ls -lh /usr/lib/modules/${KVER}/initramfs.img \
+    && rm /usr/lib/firmware/i915/mtl_dmc.bin /usr/lib/firmware/i915/mtl_guc_70.bin \
+    && rmdir /usr/lib/firmware/i915 \
     && find /tmp/fw-save -maxdepth 1 -mindepth 1 -exec mv {} /usr/lib/firmware/ \; \
     && rpm -e --nodeps kernel-devel-${KVER} kernel-devel-matched-${KVER} \
     && dnf clean all
@@ -248,6 +256,27 @@ RUN printf '[google-chrome]\nname=google-chrome\nbaseurl=https://dl.google.com/l
     && dnf install -y google-chrome-stable \
     && dnf clean all
 
+# Slack — packagecloud fedora/21 channel; the auto-detect script generates an el/9 URL
+# that doesn't exist, so we set the repo file directly.
+# gpgcheck=0: Slack's RPM signing key URL has moved and is unreliable; the download
+# is over HTTPS from a known source so this is acceptable in a CI build.
+RUN printf '[slack]\nname=Slack\nbaseurl=https://packagecloud.io/slacktechnologies/slack/fedora/21/x86_64\nenabled=1\ngpgcheck=0\nrepo_gpgcheck=0\n' \
+        > /etc/yum.repos.d/slack.repo \
+    && dnf install -y slack \
+    && dnf clean all
+
+# Element (Matrix client) — tarball from packages.element.io (Element dropped RPM packaging)
+RUN curl -fsSL \
+        "https://packages.element.io/desktop/install/linux/glibc-x86-64/element-desktop.tar.gz" \
+        | tar -xz -C /opt \
+    && mv /opt/element-desktop-* /opt/element-desktop \
+    && chmod 4755 /opt/element-desktop/chrome-sandbox \
+    && curl -fsSLo /opt/element-desktop/element.png \
+        "https://raw.githubusercontent.com/element-hq/element-desktop/develop/build/icon.png" \
+    && ln -s /opt/element-desktop/element-desktop /usr/local/bin/element-desktop \
+    && printf '[Desktop Entry]\nVersion=1.0\nType=Application\nName=Element\nIcon=/opt/element-desktop/element.png\nExec=/opt/element-desktop/element-desktop %%u\nCategories=Network;InstantMessaging;\nTerminal=false\nStartupWMClass=Element\n' \
+        > /usr/share/applications/element-desktop.desktop
+
 # GNOME utilities — file manager, viewers, system tools, text editor, keyring UI
 RUN dnf install -y \
     nautilus \
@@ -261,6 +290,11 @@ RUN dnf install -y \
     baobab \
     gedit \
     seahorse \
+    && dnf clean all
+
+# TigerVNC server — remote desktop; each user manages their own session via systemd --user
+RUN dnf install -y \
+    tigervnc-server \
     && dnf clean all
 
 # Image processing and PostScript tools
@@ -346,6 +380,14 @@ RUN mkdir -p /var/lib/texmf/web2c \
     && ln -sf pdftex/pdflatex.fmt /var/lib/texmf/web2c/pdflatex.fmt \
     && mktexlsr /var/lib/texmf
 
+# Intel i915 firmware ships as .xz in the linux-firmware RPM. CentOS 9's 5.14 kernel
+# may not have CONFIG_FW_LOADER_COMPRESS_XZ enabled, so create uncompressed copies.
+# Do not use `xz -d`: RPM firmware files have multiple hard links, which xz skips.
+RUN find /usr/lib/firmware/i915 -type f -name "*.xz" -exec \
+        sh -c 'for source do xz -dc "$source" > "${source%.xz}"; done' sh {} + \
+    && test -s /usr/lib/firmware/i915/mtl_dmc.bin \
+    && test -s /usr/lib/firmware/i915/mtl_guc_70.bin
+
 # Small config adjustments — at the end to avoid cache churn on expensive layers above
 # Keep both the bootc /etc defaults and the immutable unit fallback pointed at GDM.
 RUN ln -sf /usr/lib/systemd/system/graphical.target /etc/systemd/system/default.target \
@@ -397,7 +439,8 @@ COPY etc/systemd/system/bootc-update.service /etc/systemd/system/bootc-update.se
 COPY etc/systemd/system/bootc-update.timer /etc/systemd/system/bootc-update.timer
 RUN systemctl enable data.mount \
     && systemctl enable data-homedirs.service \
-    && systemctl enable bootc-update.timer
+    && systemctl enable bootc-update.timer \
+    && systemctl mask bootc-fetch-apply-updates.timer bootc-fetch-apply-updates.service kdump.service
 
 COPY etc/NetworkManager/conf.d/hostname.conf /etc/NetworkManager/conf.d/hostname.conf
 
