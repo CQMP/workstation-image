@@ -79,7 +79,7 @@ RUN dnf install -y \
 #   - eigen3: required by GREEN >= 3.4.0 and ALPSCore
 #   - boost: required by ALPS and ALPSCore
 #   - fftw: required by many QMC codes
-#   - gmp: required by GREEN analytical continuation module
+#   - gmp/gmpxx/mpfr: required by GREEN analytical continuation (Caratheodory) module
 #   - libxc: exchange-correlation functionals (pySCF optional but recommended)
 RUN dnf install -y \
     openblas \
@@ -92,6 +92,7 @@ RUN dnf install -y \
     fftw-libs \
     gmp \
     gmp-devel \
+    mpfr-devel \
     libxc \
     libxc-devel \
     && dnf clean all
@@ -243,6 +244,7 @@ RUN dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.rep
     && dnf install -y \
     openldap-clients \
     pciutils \
+    hwloc \
     grubby \
     gh \
     && dnf clean all
