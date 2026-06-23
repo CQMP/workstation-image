@@ -1,0 +1,11 @@
+# 02-gpu-info.sub
+# Confirm a GPU slot is assigned and CUDA is accessible.
+# Expected output: nvidia-smi table showing the assigned RTX 2000 Ada.
+# HTCondor sets CUDA_VISIBLE_DEVICES; the job sees only its assigned device.
+
+executable   = /usr/bin/nvidia-smi
+log          = 02-gpu.log
+output       = 02-gpu.out
+error        = 02-gpu.err
+request_gpus = 1
+queue

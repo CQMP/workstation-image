@@ -1,0 +1,16 @@
+# 03-vec-add.sub
+# Long-running CUDA job (~10 min) with transparent CRIU checkpointing.
+# Build first:  make -C examples/condor vec_add
+#
+# After eviction the round counter in 03-vec-add.out continues from where
+# it was frozen, confirming restore from checkpoint rather than cold restart.
+
+executable         = vec_add
+log                = 03-vec-add.log
+output             = 03-vec-add.out
+error              = 03-vec-add.err
+request_gpus       = 1
+request_cpus       = 1
+request_memory     = 1 GB
+want_checkpointing = true
+queue

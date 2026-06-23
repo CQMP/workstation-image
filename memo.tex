@@ -151,32 +151,269 @@ is using the Unix password rather than another institutional password.
 \label{sec:condor}
 % ─────────────────────────────────────────────────────────────────────────────
 
-Each workstation is configured as an HTCondor execute node.  The local Condor
-configuration is in the file\\
-\texttt{etc/condor/config.d/00-ift-execute.conf}.\\
-The execute node contacts \texttt{condor.gull-group.org} and runs only the
-Condor master and startd daemons, so these machines provide execution slots but
-are not the central manager.
+Each workstation is configured as an HTCondor execute node.  The pool is managed
+by a central manager at \texttt{condor.gull-group.org}.  All ten workstations
+register with it using CCB so that the manager can reach them through the campus
+firewall.  Each machine runs only the \texttt{MASTER} and \texttt{STARTD}
+daemons; the central manager handles scheduling.  Jobs may be submitted from any
+workstation in the pool.
 
-The configuration is designed for interactive workstations.  Jobs start only
-when the keyboard has been idle for at least 15 minutes and the machine load is
-low:
+\subsection{Checking pool status}
 
-\begin{keybox}{Start policy}
-\texttt{START = (KeyboardIdle > 900) \&\& (LoadAvg < 0.5)}
+\begin{verbatim}
+condor_status                         # one line per slot
+condor_status -constraint 'GPUs >= 1' # GPU slots only
+\end{verbatim}
+
+The \texttt{Activity} column shows \texttt{Idle} (ready to accept work),
+\texttt{Busy} (running a job), \texttt{Suspended} (job paused, local user
+active), or \texttt{Vacating} (checkpointing before eviction).
+
+\subsection{Writing a submit file}
+
+A minimal CPU submit file:
+
+\begin{verbatim}
+executable = /bin/hostname
+log        = job.log
+output     = job.out
+error      = job.err
+queue
+\end{verbatim}
+
+For a GPU job, add resource requests:
+
+\begin{verbatim}
+executable     = my_cuda_program
+log            = job.log
+output         = job.out
+error          = job.err
+request_gpus   = 1
+request_cpus   = 4
+request_memory = 8 GB
+queue
+\end{verbatim}
+
+Key directives:
+
+\begin{description}
+  \item[\texttt{executable}] Path to the binary or script.  Relative paths are
+        resolved from the submit directory.
+  \item[\texttt{arguments}] Command-line arguments, space-separated.
+  \item[\texttt{log}] HTCondor event log: submit (\texttt{000}), execute
+        (\texttt{001}), evict (\texttt{004}), hold (\texttt{009}), and
+        normal termination (\texttt{005}) events all appear here.
+  \item[\texttt{output}, \texttt{error}] Where the job's stdout and stderr
+        are written after the job completes (or are streamed back if
+        \texttt{stream\_output = true} is set).
+  \item[\texttt{request\_gpus}] Number of GPUs required.  HTCondor sets
+        \texttt{CUDA\_VISIBLE\_DEVICES} so the job sees only its assigned device.
+  \item[\texttt{request\_memory}] RAM reservation; the job is held if it
+        substantially exceeds this.
+  \item[\texttt{transfer\_input\_files}] Comma-separated list of files to copy
+        to the execute node before the job starts.
+  \item[\texttt{transfer\_output\_files}] Files to copy back when the job
+        finishes.  If omitted, all new files in the job sandbox are returned.
+\end{description}
+
+Files listed relative to the submit file are transferred automatically.  For
+large datasets it is more efficient to reference the shared NFS mounts
+(\texttt{/dmj}, \texttt{/expo}) directly from the job, or to pre-stage data
+on the execute node's local \texttt{/data} scratch disk.
+
+\subsection{Submitting and monitoring jobs}
+
+\begin{verbatim}
+condor_submit job.sub           # submit; prints cluster.proc ID
+condor_q                        # list your queued and running jobs
+condor_q -better-analyze        # explain why a job is not starting
+condor_watch                    # live queue view (refreshes every 2 s)
+condor_rm  <cluster>            # remove a job or all jobs in a cluster
+condor_hold <cluster>           # pause without removing
+condor_release <cluster>        # resume a held job
+\end{verbatim}
+
+The \texttt{log} file is the primary diagnostic tool: it records every state
+transition with a timestamp.  If a job is evicted and restarted the log shows
+both the eviction event (\texttt{004}) and the subsequent execute event
+(\texttt{001}) on the new machine.
+
+\subsection{Machine state and eviction}
+\label{sec:eviction}
+
+The workstations are shared with interactive users.  The execute-node config
+defines the following transitions:
+
+\begin{keybox}{Start / suspend / evict policy}
+\small\setlength{\parskip}{2pt}
+\begin{description}[leftmargin=2.2cm,style=nextline,font=\normalfont\ttfamily]
+  \item[START]    KeyboardIdle $>$ 900\,s \& LoadAvg $<$ 0.5 --- job accepted
+  \item[SUSPEND]  KeyboardIdle $<$ 120\,s --- SIGSTOP, job frozen in place
+  \item[CONTINUE] KeyboardIdle $>$ 600\,s \& LoadAvg $<$ 0.5 --- SIGCONT, resumes
+  \item[PREEMPT]  Active $>$60\,s after suspend --- checkpoint initiated, then evict
+  \item[KILL]     After 1\,h vacate time --- SIGKILL if still running
+\end{description}
 \end{keybox}
 
-If a local user returns briefly, Condor suspends the job.  If the machine stays
-active, the job is preempted and evicted.  The image enables CRIU-based
-checkpointing and installs NVIDIA's \texttt{cuda-checkpoint} helper so GPU jobs
-can be checkpointed during eviction when supported by the workload.  The
-configured vacate time is one hour, giving checkpointing time to complete before
-the job is killed.
+The two-stage design avoids unnecessary evictions.  When a local user returns,
+Condor first \emph{suspends} the job (cheap: the process is frozen in place,
+the GPU sits idle, nothing is written to disk).  If the user leaves again
+within about ten minutes the job is simply resumed with no overhead.  Only if
+the user stays active does Condor escalate to \emph{preemption}: it saves a
+checkpoint (described below), evicts the job, and requeues it.  The job will
+restart from the checkpoint on any available slot in the pool.
 
-The NVIDIA GPU is intended to be available to CUDA and Condor jobs.  Users
-submitting GPU jobs should request the appropriate GPU resources through the
-central Condor configuration and should test their jobs with \texttt{nvidia-smi}
-or CUDA device discovery before launching large runs.
+\subsection{CRIU checkpointing and GPU state preservation}
+\label{sec:checkpointing}
+
+\emph{Transparent checkpointing} lets a running process be frozen, written to
+disk, transferred to a different machine, and resumed --- without any changes to
+the application source code.  The mechanism has two layers:
+
+\begin{itemize}
+  \item \textbf{CRIU} (Checkpoint/Restore In Userspace) captures the full
+        CPU-side process state: memory pages, file descriptors, open sockets,
+        threads, and signal masks.
+  \item \textbf{\texttt{cuda-checkpoint}} (NVIDIA) quiesces the GPU context,
+        saves device registers and VRAM allocations, and restores them after
+        CRIU restores the CPU process on the destination node.
+\end{itemize}
+
+Both tools are installed by the workstation image.
+\texttt{ENABLE\_CHECKPOINTING = True} in the execute-node config allows the
+\texttt{condor\_starter} to invoke them.  To opt a job into transparent
+checkpointing, add one line to the submit file:
+
+\begin{verbatim}
+want_checkpointing = true
+\end{verbatim}
+
+When eviction is triggered, HTCondor:
+\begin{enumerate}
+  \item Calls \texttt{cuda-checkpoint -{}-action checkpoint} to freeze the GPU
+        context and flush it to host memory.
+  \item Runs CRIU \texttt{dump} to snapshot the process (CPU state + the GPU
+        image just flushed) and write it to the job sandbox on local NVMe.
+  \item Transfers the checkpoint bundle to the schedd spool directory on
+        \texttt{condor.gull-group.org}, so the checkpoint survives if the execute
+        node is rebooted or reimaged.
+  \item Requeues the job.  When a matching slot becomes available, the bundle is
+        transferred there and CRIU \texttt{restore} + \texttt{cuda-checkpoint
+        -{}-action restore} restart the job from the exact point it was frozen.
+\end{enumerate}
+
+The RTX~2000~Ada has 8~GB of VRAM.  At the NVMe write bandwidth of these
+machines ($\sim$3~GB/s) a fully-loaded GPU takes a few seconds to checkpoint to
+local disk; the one-hour \texttt{MachineMaxVacateTime} gives ample margin before
+the forced kill.
+
+\begin{keybox}{Checkpointing limitations}
+Not all CUDA workloads can be checkpointed.  The following are known to prevent
+a successful \texttt{cuda-checkpoint}: NCCL collective operations in flight,
+\texttt{cudaIpcMemHandle} shared-memory handles, and some third-party GPU
+libraries that manage their own CUDA contexts.  If \texttt{cuda-checkpoint}
+fails, HTCondor falls back to killing the job and restarting it from scratch on
+the next available slot.
+\end{keybox}
+
+\subsection{Example jobs}
+\label{sec:examples}
+
+Complete submit files and source code are in \texttt{examples/condor/} in the
+image repository.
+
+\subsubsection*{Example~1: CPU sanity check}
+
+Verifies the pool is reachable and basic scheduling works.
+
+\begin{verbatim}
+# examples/condor/01-cpu-sanity.sub
+executable = /bin/hostname
+log        = 01-cpu.log
+output     = 01-cpu.out
+error      = 01-cpu.err
+queue
+\end{verbatim}
+
+\begin{verbatim}
+condor_submit 01-cpu-sanity.sub
+condor_q
+cat 01-cpu.out      # should print a workstation hostname
+\end{verbatim}
+
+\subsubsection*{Example~2: GPU slot assignment}
+
+Requests one GPU and runs \texttt{nvidia-smi} to confirm the device is
+accessible.  HTCondor sets \texttt{CUDA\_VISIBLE\_DEVICES} so the job sees
+only its assigned GPU.
+
+\begin{verbatim}
+# examples/condor/02-gpu-info.sub
+executable   = /usr/bin/nvidia-smi
+log          = 02-gpu.log
+output       = 02-gpu.out
+error        = 02-gpu.err
+request_gpus = 1
+queue
+\end{verbatim}
+
+The output file will contain the full \texttt{nvidia-smi} table for the
+assigned GPU.
+
+\subsubsection*{Example~3: Long-running CUDA job with checkpointing}
+
+\texttt{vec\_add.cu} allocates two 256~MB float arrays on the device and runs
+1200~rounds of SAXPY at half-second intervals, printing a timestamped progress
+line each round.  Total wall time is approximately ten minutes --- long enough
+to trigger a real checkpoint if a user returns to the machine.
+
+Compile on any workstation:
+
+\begin{verbatim}
+make -C examples/condor
+\end{verbatim}
+
+or directly:
+
+\begin{verbatim}
+nvcc -O2 -arch=sm_89 -o vec_add vec_add.cu
+\end{verbatim}
+
+Submit file:
+
+\begin{verbatim}
+# examples/condor/03-vec-add.sub
+executable         = vec_add
+log                = 03-vec-add.log
+output             = 03-vec-add.out
+error              = 03-vec-add.err
+request_gpus       = 1
+request_cpus       = 1
+request_memory     = 1 GB
+want_checkpointing = true
+queue
+\end{verbatim}
+
+Submit and follow progress:
+
+\begin{verbatim}
+condor_submit 03-vec-add.sub
+tail -f 03-vec-add.out
+\end{verbatim}
+
+To test checkpointing explicitly, hold and immediately release the job while
+it is running:
+
+\begin{verbatim}
+condor_hold <cluster>
+condor_release <cluster>
+\end{verbatim}
+
+Alternatively, sit down at the execute node and move the mouse for a minute.
+Either way, once the job restarts, the round counter in the output will continue
+from the round at which the job was frozen --- confirming that the CRIU
+checkpoint was successfully saved, transferred, and restored rather than the job
+restarting from round~1.
 
 % ─────────────────────────────────────────────────────────────────────────────
 \section{File System}

@@ -1,0 +1,9 @@
+# 01-cpu-sanity.sub
+# Verify the pool is reachable and jobs are scheduled.
+# Expected output: the hostname of the execute node.
+
+executable = /bin/hostname
+log        = 01-cpu.log
+output     = 01-cpu.out
+error      = 01-cpu.err
+queue
