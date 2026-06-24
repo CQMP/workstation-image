@@ -267,12 +267,32 @@ RUN printf '[slack]\nname=Slack\nbaseurl=https://packagecloud.io/slacktechnologi
     && dnf install -y slack \
     && dnf clean all
 
-# Sublime Text — official RPM repo from sublimetext.com
-RUN rpm --import https://download.sublimetext.com/sublimehq-rpm-pub.gpg \
-    && curl -fsSLo /etc/yum.repos.d/sublime-text.repo \
-        https://download.sublimetext.com/rpm/stable/x86_64/sublime-text.repo \
+# Sublime Text — its current RPM is RSA/SHA-256 signed, but the signing key's
+# self-signature uses SHA-1. EL9 therefore needs the narrow SHA1 subpolicy only
+# while importing that exact key; restore DEFAULT before installing the RPM.
+RUN dnf install -y gnupg2 crypto-policies-scripts \
+    && install -d -m 700 /tmp/sublime-gnupg \
+    && curl -fsSLo /tmp/sublimehq-pub.gpg \
+        https://download.sublimetext.com/sublimehq-pub.gpg \
+    && GNUPGHOME=/tmp/sublime-gnupg gpg --batch --quiet --no-autostart \
+        --import /tmp/sublimehq-pub.gpg \
+    && GNUPGHOME=/tmp/sublime-gnupg gpg --batch --quiet --no-autostart \
+        --armor --export 1B64279675A4299DCFC70858CA464A9A222D23D0 \
+        > /etc/pki/rpm-gpg/RPM-GPG-KEY-sublimehq \
+    && test "$(GNUPGHOME=/tmp/sublime-gnupg gpg --batch --no-autostart \
+        --show-keys --with-colons \
+        /etc/pki/rpm-gpg/RPM-GPG-KEY-sublimehq \
+        | awk -F: '$1 == "fpr" { print $10; exit }')" \
+        = 1B64279675A4299DCFC70858CA464A9A222D23D0 \
+    && test "$(update-crypto-policies --show)" = DEFAULT \
+    && update-crypto-policies --set DEFAULT:SHA1 \
+    && rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-sublimehq \
+    && update-crypto-policies --set DEFAULT \
+    && printf '[sublime-text]\nname=Sublime Text - x86_64 - stable\nbaseurl=https://download.sublimetext.com/rpm/stable/x86_64\nenabled=1\ngpgcheck=1\ngpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-sublimehq\n' \
+        > /etc/yum.repos.d/sublime-text.repo \
     && dnf install -y sublime-text \
-    && dnf clean all
+    && dnf clean all \
+    && rm -rf /tmp/sublime-gnupg /tmp/sublimehq-pub.gpg
 
 # Element (Matrix client) — tarball from packages.element.io (Element dropped RPM packaging)
 RUN curl -fsSL \
