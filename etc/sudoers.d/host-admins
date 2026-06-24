@@ -1,0 +1,4 @@
+# Host-specific administrators. These LDAP users have sudo rights only when
+# the machine's short hostname matches the host listed here.
+ajazdzewska hubbard = (ALL) ALL
+rfarid dyson = (ALL) ALL

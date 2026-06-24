@@ -449,7 +449,9 @@ COPY etc/dconf/db/gdm.d/01-hidpi /etc/dconf/db/gdm.d/01-hidpi
 RUN dconf update
 
 COPY etc/sudoers.d/egull /etc/sudoers.d/egull
-RUN chmod 440 /etc/sudoers.d/egull
+COPY etc/sudoers.d/host-admins /etc/sudoers.d/host-admins
+RUN chmod 440 /etc/sudoers.d/egull /etc/sudoers.d/host-admins \
+    && visudo --check --file=/etc/sudoers
 
 
 COPY etc/sssd/sssd.conf /etc/sssd/sssd.conf
