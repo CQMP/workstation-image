@@ -267,6 +267,13 @@ RUN printf '[slack]\nname=Slack\nbaseurl=https://packagecloud.io/slacktechnologi
     && dnf install -y slack \
     && dnf clean all
 
+# Sublime Text — official RPM repo from sublimetext.com
+RUN rpm --import https://download.sublimetext.com/sublimehq-rpm-pub.gpg \
+    && curl -fsSLo /etc/yum.repos.d/sublime-text.repo \
+        https://download.sublimetext.com/rpm/stable/x86_64/sublime-text.repo \
+    && dnf install -y sublime-text \
+    && dnf clean all
+
 # Element (Matrix client) — tarball from packages.element.io (Element dropped RPM packaging)
 RUN curl -fsSL \
         "https://packages.element.io/desktop/install/linux/glibc-x86-64/element-desktop.tar.gz" \
