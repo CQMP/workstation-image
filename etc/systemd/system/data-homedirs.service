@@ -10,7 +10,7 @@ RemainAfterExit=yes
 ExecStart=/bin/bash -c '\
   for attempt in $(seq 1 18); do \
     rc=0; \
-    for user in egull rfarid ajazdzewska amarie abalbi; do \
+    for user in egull rfarid ajazdzewska amarie abalbi jdobrzyniecki; do \
       dir=/data/$user; \
       [ -d "$dir" ] && continue; \
       if ! id "$user" &>/dev/null; then \
