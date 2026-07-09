@@ -45,7 +45,8 @@ RUN systemctl enable gdm \
     && systemctl enable sshd \
     && systemctl enable sssd \
     && systemctl enable oddjobd \
-    && systemctl enable autofs
+    && systemctl enable autofs \
+    && systemctl enable nfs-server
 
 RUN authselect select sssd with-mkhomedir --force
 
@@ -459,8 +460,11 @@ RUN --mount=type=secret,id=ldap_password \
     sed -i "s/ldap_default_authtok = CHANGE_ME/ldap_default_authtok = $(cat /run/secrets/ldap_password)/" /etc/sssd/sssd.conf \
     && chmod 600 /etc/sssd/sssd.conf
 
+RUN mkdir -p /etc/exports.d
 COPY etc/auto.master /etc/auto.master
-RUN mkdir -p /dmj /expo /repo
+COPY etc/auto.shared_data /etc/auto.shared_data
+COPY etc/exports.d/data.exports /etc/exports.d/data.exports
+RUN mkdir -p /dmj /expo /repo /shared_data
 RUN sed -i 's/^automount:.*/automount: files sss/' /etc/nsswitch.conf \
     || echo 'automount: files sss' >> /etc/nsswitch.conf
 

@@ -25,7 +25,9 @@ Key config locations and what they do:
 | `etc/systemd/system/bootc-update.{service,timer}` | Automatic `bootc upgrade && reboot` every Sunday 04:00 UTC |
 | `etc/systemd/system/data.mount` | Mounts local NVMe `/data` scratch partition |
 | `etc/systemd/system/data-homedirs.service` | Creates `/data/<user>/` dirs for each allowed user on boot |
-| `etc/auto.master` | autofs mounts for `/dmj`, `/expo`, `/repo` (NFS home directories) |
+| `etc/auto.master` | autofs mounts for `/dmj`, `/expo`, `/repo` and peer workstation scratch disks |
+| `etc/auto.shared_data` | autofs map for `/shared_data/<host>` NFS mounts of workstation `/data` disks |
+| `etc/exports.d/data.exports` | NFS export of local `/data` to the workstation subnet |
 | `usr/lib/bootc/kargs.d/nvidia.toml` | Kernel args: `nvidia-drm.modeset=1`, `modprobe.blacklist=nouveau` |
 | `etc/dracut.conf.d/` | Initramfs tuning: nouveau blacklisted in initrd; modules stripped for small image |
 | `machines.md` | Machine inventory: names, MACs, IPs (10.42.1.40–50) |
@@ -69,6 +71,7 @@ If LDAP auth fails, check: (1) user exists in LDAP Unix domain, (2) user is in `
 
 - `/dmj`, `/expo`, `/repo` — NFS via autofs (home dirs, shared code, backed up)
 - `/data` — local NVMe scratch, per-user dirs created by `data-homedirs.service`, **not backed up**
+- `/shared_data/<host>` — on-demand NFS access to another workstation's `/data`; availability depends on that workstation being powered on and reachable
 
 ## Base image digest updates
 

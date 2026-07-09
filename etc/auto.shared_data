@@ -1,0 +1,12 @@
+# Each peer exports its local /data as the NFSv4 pseudo-root (fsid=0).
+matsubara   -fstype=nfs4,rw,soft,noatime,nosuid,nodev,timeo=50,retrans=2  10.42.1.40:/
+anderson    -fstype=nfs4,rw,soft,noatime,nosuid,nodev,timeo=50,retrans=2  10.42.1.41:/
+kadanoff    -fstype=nfs4,rw,soft,noatime,nosuid,nodev,timeo=50,retrans=2  10.42.1.42:/
+hubbard     -fstype=nfs4,rw,soft,noatime,nosuid,nodev,timeo=50,retrans=2  10.42.1.43:/
+dyson       -fstype=nfs4,rw,soft,noatime,nosuid,nodev,timeo=50,retrans=2  10.42.1.44:/
+onsager     -fstype=nfs4,rw,soft,noatime,nosuid,nodev,timeo=50,retrans=2  10.42.1.45:/
+tomonaga    -fstype=nfs4,rw,soft,noatime,nosuid,nodev,timeo=50,retrans=2  10.42.1.46:/
+bethe       -fstype=nfs4,rw,soft,noatime,nosuid,nodev,timeo=50,retrans=2  10.42.1.47:/
+nambu       -fstype=nfs4,rw,soft,noatime,nosuid,nodev,timeo=50,retrans=2  10.42.1.48:/
+luttinger   -fstype=nfs4,rw,soft,noatime,nosuid,nodev,timeo=50,retrans=2  10.42.1.49:/
+nozieres    -fstype=nfs4,rw,soft,noatime,nosuid,nodev,timeo=50,retrans=2  10.42.1.50:/

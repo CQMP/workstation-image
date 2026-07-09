@@ -433,4 +433,20 @@ simulation scratch data, compilation trees, temporary files, local virtual
 environments, and other high-I/O work that does not need backup.  Important
 results should be copied back to backed-up network storage.
 
+The local scratch disks are also exported within the workstation subnet and are
+available on demand under \texttt{/shared\_data}.  For example,
+\texttt{/shared\_data/matsubara} accesses the \texttt{/data} disk on
+\texttt{matsubara}, \texttt{/shared\_data/hubbard} accesses the \texttt{/data}
+disk on \texttt{hubbard}, and similarly for the other hosts listed in
+\texttt{machines.md}.  These mounts are managed by autofs, so a host is mounted
+only when its directory is accessed.
+
+The \texttt{/shared\_data/<host>} paths are a convenience for moving or reading
+scratch data between workstations; they do not make the data backed up or
+centrally managed.  The mounts use soft NFS semantics so that access to an
+offline workstation fails rather than indefinitely blocking a user's shell or
+job.  Users should therefore treat these paths as best suited for interactive
+copying, inspection, and recoverable scratch workflows, not as a replacement for
+backed-up storage.
+
 \end{document}

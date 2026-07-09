@@ -2,3 +2,4 @@
 /dmj    auto_dmj    -intr,nosuid
 /expo   auto_expo   -intr,nosuid
 /repo   auto_repo   -intr,nosuid
+/shared_data    /etc/auto.shared_data    --timeout=60
