@@ -170,8 +170,9 @@ RUN dnf install -y \
     && rm -rf /tmp/criu-${CRIU_TAG#v} \
     && dnf clean all
 
-# Printing — CUPS + OpenPrinting PPD database (includes Sharp MX-C358F)
-# Users configure the printer via Settings → Printers on first login
+# Printing — CUPS + OpenPrinting PPD database (fallback for printers without
+# IPP Everywhere support; the IFT Sharp MX-C358F is provisioned driverlessly,
+# see cups-printers.service)
 RUN dnf install -y \
     cups \
     cups-client \
@@ -472,9 +473,11 @@ COPY etc/systemd/system/data.mount /etc/systemd/system/data.mount
 COPY etc/systemd/system/data-homedirs.service /etc/systemd/system/data-homedirs.service
 COPY etc/systemd/system/bootc-update.service /etc/systemd/system/bootc-update.service
 COPY etc/systemd/system/bootc-update.timer /etc/systemd/system/bootc-update.timer
+COPY etc/systemd/system/cups-printers.service /etc/systemd/system/cups-printers.service
 RUN systemctl enable data.mount \
     && systemctl enable data-homedirs.service \
     && systemctl enable bootc-update.timer \
+    && systemctl enable cups-printers.service \
     && systemctl mask bootc-fetch-apply-updates.timer bootc-fetch-apply-updates.service kdump.service
 
 COPY etc/NetworkManager/conf.d/hostname.conf /etc/NetworkManager/conf.d/hostname.conf

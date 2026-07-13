@@ -25,6 +25,7 @@ Key config locations and what they do:
 | `etc/systemd/system/bootc-update.{service,timer}` | Automatic `bootc upgrade && reboot` every Sunday 04:00 UTC |
 | `etc/systemd/system/data.mount` | Mounts local NVMe `/data` scratch partition |
 | `etc/systemd/system/data-homedirs.service` | Creates `/data/<user>/` dirs for each allowed user on boot |
+| `etc/systemd/system/cups-printers.service` | Registers shared network printers (e.g. Sharp MX-C358F) with CUPS on boot, driverlessly via IPP Everywhere |
 | `etc/auto.master` | autofs mounts for `/dmj`, `/expo`, `/repo` and peer workstation scratch disks |
 | `etc/auto.shared_data` | autofs map for `/shared_data/<host>` NFS mounts of workstation `/data` disks |
 | `etc/exports.d/data.exports` | NFS export of local `/data` to the workstation subnet |
@@ -72,6 +73,12 @@ If LDAP auth fails, check: (1) user exists in LDAP Unix domain, (2) user is in `
 - `/dmj`, `/expo`, `/repo` — NFS via autofs (home dirs, shared code, backed up)
 - `/data` — local NVMe scratch, per-user dirs created by `data-homedirs.service`, **not backed up**
 - `/shared_data/<host>` — on-demand NFS access to another workstation's `/data`; availability depends on that workstation being powered on and reachable
+
+## Printing
+
+- CUPS + `cups-printers.service` provision printer queues driverlessly at boot (no vendor PPD needed) via CUPS's IPP Everywhere (`lpadmin -m everywhere`) support.
+- **Sharp MX-C358F** (`10.43.6.203`) — confirmed to advertise `ipp-everywhere` in its IPP attributes; queue name `Sharp-MX-C358F`.
+- To add another network printer, add an `lpadmin ... -m everywhere` idempotency check + call to `etc/systemd/system/cups-printers.service`, following the existing Sharp queue as a template. Confirm the target printer advertises `ipp-everywhere` first (`ipptool -tv ipp://<ip>/ipp/print get-printer-attributes.test` or check `ipp-features-supported`); if it doesn't, fall back to a foomatic/vendor PPD via `lpadmin -m <ppd>`.
 
 ## Base image digest updates
 

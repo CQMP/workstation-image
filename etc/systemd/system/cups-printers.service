@@ -1,0 +1,29 @@
+[Unit]
+Description=Register shared network printers with CUPS
+After=cups.service network-online.target
+Wants=network-online.target
+Requires=cups.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/bash -c '\
+  for attempt in $(seq 1 18); do \
+    if lpstat -p Sharp-MX-C358F &>/dev/null; then \
+      exit 0; \
+    fi; \
+    if lpadmin -p Sharp-MX-C358F -E \
+        -v "ipp://10.43.6.203/ipp/print" \
+        -m everywhere \
+        -D "Sharp MX-C358F" \
+        -L "IFT"; then \
+      exit 0; \
+    fi; \
+    echo "cups-printers: could not reach printer (attempt $attempt/18), retrying in 10s"; \
+    sleep 10; \
+  done; \
+  echo "cups-printers: gave up after 3 minutes"; \
+  exit 1'
+
+[Install]
+WantedBy=multi-user.target
