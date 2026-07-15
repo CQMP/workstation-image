@@ -345,6 +345,18 @@ RUN CLION_VER=$(curl -fsSL \
     && printf '[Desktop Entry]\nVersion=1.0\nType=Application\nName=CLion\nIcon=/opt/clion/bin/clion.svg\nExec=/opt/clion/bin/clion %%f\nCategories=Development;IDE;\nTerminal=false\nStartupWMClass=jetbrains-clion\n' \
         > /usr/share/applications/clion.desktop
 
+# PyCharm Professional — latest stable release, system-wide install in /opt/pycharm
+# (bundles its own JBR); requires a JetBrains license to unlock full features
+RUN PYCHARM_VER=$(curl -fsSL \
+        "https://data.services.jetbrains.com/products/releases?code=PCP&latest=true&type=release" \
+        | python3 -c "import sys,json; print(json.load(sys.stdin)['PCP'][0]['version'])") \
+    && curl -fsSL "https://download.jetbrains.com/python/pycharm-${PYCHARM_VER}.tar.gz" \
+        | tar -xz -C /opt \
+    && mv /opt/pycharm-${PYCHARM_VER} /opt/pycharm \
+    && ln -s /opt/pycharm/bin/pycharm /usr/local/bin/pycharm \
+    && printf '[Desktop Entry]\nVersion=1.0\nType=Application\nName=PyCharm\nIcon=/opt/pycharm/bin/pycharm.svg\nExec=/opt/pycharm/bin/pycharm %%f\nCategories=Development;IDE;\nTerminal=false\nStartupWMClass=jetbrains-pycharm\n' \
+        > /usr/share/applications/pycharm.desktop
+
 # Eclipse CDT — C/C++ IDE with CDT, CMake, EGit, and bundled JRE; update tag periodically
 # Releases: https://download.eclipse.org/technology/epp/downloads/release/
 RUN curl -fsSL \
