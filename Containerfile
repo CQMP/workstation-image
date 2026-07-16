@@ -428,6 +428,15 @@ RUN mkdir -p /var/lib/texmf/web2c \
     && ln -sf pdftex/pdflatex.fmt /var/lib/texmf/web2c/pdflatex.fmt \
     && mktexlsr /var/lib/texmf
 
+# Fonts used by Chromium browsers to display math/emojis:
+# stix-fonts : used to display symbols in MathML math equations
+# (e.g. math equations rendered on github.com);
+#   otherwise certain symbols (such as letters) will be missing.
+# google-noto-emoji-color-fonts : colored emojis
+RUN dnf install -y stix-fonts \
+  google-noto-emoji-color-fonts && \
+  dnf clean all
+
 # Intel i915 firmware ships as .xz in the linux-firmware RPM. CentOS 9's 5.14 kernel
 # may not have CONFIG_FW_LOADER_COMPRESS_XZ enabled, so create uncompressed copies.
 # Do not use `xz -d`: RPM firmware files have multiple hard links, which xz skips.
