@@ -463,6 +463,8 @@ COPY etc/dconf/db/local.d/01-hidpi /etc/dconf/db/local.d/01-hidpi
 COPY etc/dconf/db/gdm.d/01-hidpi /etc/dconf/db/gdm.d/01-hidpi
 RUN dconf update
 
+COPY etc/polkit-1/rules.d/49-vnc-color-manager.rules /etc/polkit-1/rules.d/49-vnc-color-manager.rules
+
 COPY etc/sudoers.d/egull /etc/sudoers.d/egull
 COPY etc/sudoers.d/host-admins /etc/sudoers.d/host-admins
 RUN chmod 440 /etc/sudoers.d/egull /etc/sudoers.d/host-admins \

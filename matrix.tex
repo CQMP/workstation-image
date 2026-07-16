@@ -173,9 +173,12 @@ results should be copied back to backed-up network storage.
 
 \section{Remote Desktop Access (VNC)}
 
-The workstations run TigerVNC server.  Each user maintains a private VNC session
-on a chosen display number (e.g., \texttt{:1} on port 5901).  Sessions persist
-across disconnects: GUI applications keep running after the viewer is closed.
+The workstations run TigerVNC server (\texttt{tigervnc-server}, EL9). Each user
+runs on a chosen display number (e.g., \texttt{:1} on port 5901), managed as a
+\emph{system-level} systemd service via a display-to-user mapping file --- there
+is no per-user \texttt{systemctl --user} template on this package version.
+Sessions persist across disconnects: GUI applications keep running after the
+viewer is closed.
 
 If two users share a machine they must use different display numbers
 (\texttt{:1}, \texttt{:2}, \ldots); the corresponding TCP port is
@@ -183,22 +186,25 @@ $5900 + \text{display number}$.
 
 \subsection*{First-time setup (on the workstation, via SSH)}
 
-Set a VNC password:
+Set a VNC password (as yourself, not root):
 \begin{verbatim}
 vncpasswd
 \end{verbatim}
 
-Allow your user services to run at boot even when you are not logged in:
+As root, map your display number to your username:
 \begin{verbatim}
-loginctl enable-linger
+echo ":1=<username>" >> /etc/tigervnc/vncserver.users
 \end{verbatim}
 
-Enable and start your VNC session:
+As root, enable and start the service (no \texttt{--user} flag --- this is a
+system unit):
 \begin{verbatim}
-systemctl --user enable --now vncserver@:1.service
+systemctl enable --now vncserver@:1.service
 \end{verbatim}
 
-The session will now start automatically after every reboot.
+The session will now start automatically after every reboot. The default
+session type is GNOME, set system-wide in
+\texttt{/etc/tigervnc/vncserver-config-defaults}.
 
 \subsection*{Connecting from macOS}
 
@@ -224,9 +230,10 @@ running, create a new connection to \texttt{localhost:5901}.
 
 \subsection*{Session management}
 
+As root:
 \begin{verbatim}
-systemctl --user stop    vncserver@:1.service   # stop the session
-systemctl --user disable vncserver@:1.service   # prevent autostart on reboot
+systemctl stop    vncserver@:1.service   # stop the session
+systemctl disable vncserver@:1.service   # prevent autostart on reboot
 \end{verbatim}
 
 \section{Matrix/Element Messaging Server}

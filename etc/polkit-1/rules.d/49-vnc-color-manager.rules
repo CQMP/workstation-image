@@ -1,0 +1,12 @@
+// GNOME's gsd-color tries to auto-create a display color profile at session
+// start. polkit's colord policy only grants this without a password to
+// "active" *local* sessions; TigerVNC/Xvnc sessions are flagged Remote=yes
+// by logind even though they are the user's own desktop, so every VNC login
+// was hit with a spurious "Administrator" authentication prompt. This is a
+// single-user workstation pool, so allow any authenticated user to perform
+// this benign, per-user action.
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.color-manager.create-profile") {
+        return polkit.Result.YES;
+    }
+});
