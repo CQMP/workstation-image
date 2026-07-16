@@ -111,6 +111,7 @@ RUN dnf install -y \
     python3-h5py \
     python3-mpi4py-openmpi \
     python3-mpi4py-mpich \
+    python3-ipython \
     && dnf clean all
 
 # Globus Connect Personal — users authenticate per-account at first run
