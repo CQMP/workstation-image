@@ -104,7 +104,7 @@ RUN dnf install -y \
     && dnf clean all
 
 # Python scientific stack
-# numba, spglib, ase (needed by green-mbtools) are not in RPM repos — install via pip per-user
+# numba, spglib, ase (needed by green-mbtools), jupyter are not in RPM repos — install via pip per-user
 RUN dnf install -y \
     python3-numpy \
     python3-scipy \
