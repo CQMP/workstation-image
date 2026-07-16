@@ -324,10 +324,14 @@ RUN dnf install -y \
     seahorse \
     && dnf clean all
 
-# TigerVNC server — remote desktop; each user manages their own session via systemd --user
+# TigerVNC server — remote desktop; managed as a system service via
+# /etc/tigervnc/vncserver.users (display -> username mapping), see matrix.tex
 RUN dnf install -y \
     tigervnc-server \
     && dnf clean all
+
+# Default VNC desktop resolution — package default is a cramped 1024x768
+COPY etc/tigervnc/vncserver-config-defaults /etc/tigervnc/vncserver-config-defaults
 
 # Image processing and PostScript tools
 RUN dnf install -y \
