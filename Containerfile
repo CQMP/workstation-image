@@ -489,6 +489,13 @@ COPY etc/systemd/system/data-homedirs.service /etc/systemd/system/data-homedirs.
 COPY etc/systemd/system/bootc-update.service /etc/systemd/system/bootc-update.service
 COPY etc/systemd/system/bootc-update.timer /etc/systemd/system/bootc-update.timer
 COPY etc/systemd/system/cups-printers.service /etc/systemd/system/cups-printers.service
+
+# vncserver@.service ships ordered only After=network.target, so it starts
+# seconds after boot -- before autofs/sssd bring up NFS home directories.
+# vncsession then can't set up $HOME and Xvnc exits (status 71). Drop-in
+# delays it until home dirs and LDAP user lookup are actually available.
+COPY etc/systemd/system/vncserver@.service.d/10-wait-for-home.conf /etc/systemd/system/vncserver@.service.d/10-wait-for-home.conf
+
 RUN systemctl enable data.mount \
     && systemctl enable data-homedirs.service \
     && systemctl enable bootc-update.timer \
