@@ -428,6 +428,10 @@ RUN mkdir -p /var/lib/texmf/web2c \
     && ln -sf pdftex/pdflatex.fmt /var/lib/texmf/web2c/pdflatex.fmt \
     && mktexlsr /var/lib/texmf
 
+# ntfs-3g — support for NTFS hard drives
+RUN dnf install -y ntfs-3g && \
+    dnf clean all
+
 # Fonts used by Chromium browsers to display math/emojis:
 # stix-fonts : used to display symbols in MathML math equations
 # (e.g. math equations rendered on github.com);
