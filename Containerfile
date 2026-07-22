@@ -101,6 +101,7 @@ RUN dnf install -y \
 # Plotting
 RUN dnf install -y \
     grace \
+    gnuplot \
     && dnf clean all
 
 # Python scientific stack
