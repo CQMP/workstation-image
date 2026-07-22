@@ -428,6 +428,10 @@ RUN mkdir -p /var/lib/texmf/web2c \
     && ln -sf pdftex/pdflatex.fmt /var/lib/texmf/web2c/pdflatex.fmt \
     && mktexlsr /var/lib/texmf
 
+# ntfs-3g — support for NTFS hard drives
+RUN dnf install -y ntfs-3g && \
+    dnf clean all
+
 # Intel i915 firmware ships as .xz in the linux-firmware RPM. CentOS 9's 5.14 kernel
 # may not have CONFIG_FW_LOADER_COMPRESS_XZ enabled, so create uncompressed copies.
 # Do not use `xz -d`: RPM firmware files have multiple hard links, which xz skips.
