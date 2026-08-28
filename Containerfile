@@ -442,6 +442,15 @@ RUN dnf install -y stix-fonts \
   google-noto-emoji-color-fonts && \
   dnf clean all
 
+# Python 3.14. Necessary for certain Python scripts that are not compatible with 3.9.
+# Ran via separate commands: `python3.14`, etc.
+# /usr/bin/python3 remains 3.9: dnf and all python3-* RPMs depend on it.
+RUN dnf install -y \
+    python3.14 \
+    python3.14-pip \
+    python3.14-devel \
+    && dnf clean all
+
 # Intel i915 firmware ships as .xz in the linux-firmware RPM. CentOS 9's 5.14 kernel
 # may not have CONFIG_FW_LOADER_COMPRESS_XZ enabled, so create uncompressed copies.
 # Do not use `xz -d`: RPM firmware files have multiple hard links, which xz skips.
