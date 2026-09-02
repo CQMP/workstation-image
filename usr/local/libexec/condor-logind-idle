@@ -1,0 +1,52 @@
+#!/bin/bash
+# Publish the shortest idle time of any active local graphical session.
+# The output is consumed by HTCondor's startd cron mechanism.
+
+set -u
+
+max_idle=2147483647
+idle_seconds=$max_idle
+interactive=false
+now_us=$(date +%s%6N)
+session_list=$(loginctl list-sessions --no-legend 2>/dev/null) || {
+    printf 'LocalInteractiveSession = true\n'
+    printf 'LocalInteractiveIdle = 0\n'
+    exit 0
+}
+
+while read -r session _; do
+    [[ -n "${session:-}" ]] || continue
+
+    properties=$(loginctl show-session "$session" \
+        -p Active -p Remote -p Type -p IdleHint -p IdleSinceHint 2>/dev/null) || {
+        # An unreadable session might be a local graphical user. Fail closed.
+        interactive=true
+        idle_seconds=0
+        continue
+    }
+
+    active=$(sed -n 's/^Active=//p' <<<"$properties")
+    remote=$(sed -n 's/^Remote=//p' <<<"$properties")
+    type=$(sed -n 's/^Type=//p' <<<"$properties")
+    idle_hint=$(sed -n 's/^IdleHint=//p' <<<"$properties")
+    idle_since_us=$(sed -n 's/^IdleSinceHint=//p' <<<"$properties")
+
+    [[ "$active" == yes && "$remote" == no ]] || continue
+    [[ "$type" == x11 || "$type" == wayland ]] || continue
+
+    interactive=true
+    if [[ "$idle_hint" == no ]]; then
+        session_idle=0
+    elif [[ "$idle_since_us" =~ ^[0-9]+$ && "$idle_since_us" -gt 0 ]]; then
+        session_idle=$(( (now_us - idle_since_us) / 1000000 ))
+        (( session_idle < 0 )) && session_idle=0
+    else
+        # Fail closed when logind cannot provide a trustworthy idle time.
+        session_idle=0
+    fi
+
+    (( session_idle < idle_seconds )) && idle_seconds=$session_idle
+done <<<"$session_list"
+
+printf 'LocalInteractiveSession = %s\n' "$interactive"
+printf 'LocalInteractiveIdle = %d\n' "$idle_seconds"

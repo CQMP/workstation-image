@@ -57,7 +57,7 @@ The NVIDIA kernel module is built in-image with DKMS (`dkms build/install`) duri
 
 ## HTCondor
 
-Central manager: `condor.gull-group.org`. Each workstation runs only `MASTER` and `STARTD`. Jobs start only when `KeyboardIdle > 900s` and `LoadAvg < 0.5`. CRIU checkpointing is enabled with `cuda-checkpoint` for GPU jobs; vacate time is 1 hour.
+Central manager: `condor.gull-group.org`. Each workstation runs `MASTER`, `STARTD`, and `SCHEDD`. A startd cron monitor publishes local graphical-session idle time from systemd-logind because HTCondor's `KeyboardIdle` fallback does not see GNOME input without `condor_kbdd`. Jobs start only when `LocalInteractiveIdle > 900s` and `LoadAvg < 0.5`; remote SSH sessions do not inhibit jobs. CRIU checkpointing is enabled with `cuda-checkpoint` for GPU jobs; vacate time is 1 hour.
 
 ## LDAP / Authentication
 
