@@ -92,4 +92,4 @@ curl -fsSL "https://quay.io/api/v1/repository/centos-bootc/centos-bootc/tag/?spe
 ## Open items (as of June 2026)
 
 - Dominika Zgid has no FUW LDAP account yet; add uid to `simple_allow_users` and `data-homedirs.service` once known
-- MACs for Onsager, Tomonaga, Bethe, Nambu, Luttinger not yet recorded in `machines.md`
+- No host is currently named Luttinger (the former Luttinger was renamed Tomonaga in DNS, Sep 2026)

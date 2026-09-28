@@ -8,8 +8,10 @@
 | Hubbard    | d4:a2:cd:ad:d8:57 | 10.42.1.43  |
 | Dyson      | d4:a2:cd:ad:d8:78 | 10.42.1.44  |
 | Onsager    | d4:a2:cd:ad:d8:67 | 10.42.1.45  |
-| Tomonaga   |                   | 10.42.1.46  |
+| Tomonaga   | d4:a2:cd:ad:d7:9d | 10.42.1.46  |
 | Bethe      | d4:a2:cd:ad:d6:48 | 10.42.1.47  |
 | Nambu      | d4:a2:cd:ad:d7:31 | 10.42.1.48  |
-| Luttinger  | d4:a2:cd:ad:d7:9d | 10.42.1.49  |
+| Luttinger  | (no host)         | 10.42.1.49  |
 | Nozieres   | d4:a2:cd:ad:d8:be | 10.42.1.50  |
+
+Note (Sep 2026): the machine formerly named Luttinger (MAC `d4:a2:cd:ad:d7:9d`) was renamed to Tomonaga in DNS. No machine is currently named Luttinger.
