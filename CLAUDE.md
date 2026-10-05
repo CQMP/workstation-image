@@ -64,7 +64,7 @@ Central manager: `condor.gull-group.org`. Each workstation runs `MASTER`, `START
 - **LDAP server:** `ldaps://ccdas1.fuw.edu.pl` (port 636, GEANT TLS cert, valid Sep 2026)
 - **Base DN:** `ou=fizyk,ou=unixAuth,dc=das,dc=fuw,dc=edu,dc=pl`
 - **Bind DN:** `cn=hprxGullZgidWS,ou=IFT,ou=unixFizyk,ou=proxyAgents,dc=das,dc=fuw,dc=edu,dc=pl`
-- **Current allow list:** `egull, rfarid, ajazdzewska, amarie, abalbi, jdobrzyniecki, aaleryani, cwei`
+- **Current allow list:** `egull, rfarid, ajazdzewska, amarie, abalbi, jdobrzyniecki, aaleryani, cwei, jgrabarczyk`
 
 If LDAP auth fails, check: (1) user exists in LDAP Unix domain, (2) user is in `simple_allow_users`, (3) user is using their Unix password (not institutional SSO).
 
