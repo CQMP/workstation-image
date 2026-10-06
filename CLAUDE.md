@@ -32,7 +32,7 @@ Key config locations and what they do:
 | `usr/lib/bootc/kargs.d/nvidia.toml` | Kernel args: `nvidia-drm.modeset=1`, `modprobe.blacklist=nouveau` |
 | `etc/dracut.conf.d/` | Initramfs tuning: nouveau blacklisted in initrd; modules stripped for small image |
 | `machines.md` | Machine inventory: names, MACs, IPs (10.42.1.40–50) |
-| `.github/workflows/build.yml` | CI: build + push to GHCR on every push to `main` and weekly Sunday 03:00 UTC |
+| `.github/workflows/build.yml` | CI: build + push to GHCR on every push to `main` and weekly Sunday 00:17 UTC (well ahead of the 04:00 UTC `bootc-update.timer`; GitHub starts scheduled runs up to ~1.5h late) |
 
 ## Secrets (GitHub Actions)
 
