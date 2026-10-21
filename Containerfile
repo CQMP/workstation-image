@@ -210,9 +210,10 @@ COPY etc/dracut.conf.d/blacklist-nouveau.conf /etc/dracut.conf.d/blacklist-nouve
 COPY etc/dracut.conf.d/omit-nvidia-initramfs.conf /etc/dracut.conf.d/omit-nvidia-initramfs.conf
 COPY etc/dracut.conf.d/ift-workstation-initramfs.conf /etc/dracut.conf.d/ift-workstation-initramfs.conf
 
-# Build NVIDIA kernel module in-image using DKMS
+# Build NVIDIA kernel module in-image using DKMS. Since driver 615 NVIDIA ships only the open
+# kernel module (kmod-nvidia-open-dkms); its DKMS module name is still "nvidia".
 RUN KVER=$(rpm -q kernel --queryformat '%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort -V | tail -1) \
-    && NVIDIA_VER=$(rpm -q kmod-nvidia-latest-dkms --queryformat '%{VERSION}\n') \
+    && NVIDIA_VER=$(rpm -q kmod-nvidia-open-dkms --queryformat '%{VERSION}\n') \
     && dnf install -y kernel-devel-${KVER} \
     && dkms build nvidia/${NVIDIA_VER} -k ${KVER} \
     && dkms install nvidia/${NVIDIA_VER} -k ${KVER} \

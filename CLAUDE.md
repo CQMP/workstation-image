@@ -53,7 +53,7 @@ To add a user: add their Unix username to `simple_allow_users` in `etc/sssd/sssd
 
 ## NVIDIA / DKMS notes
 
-The NVIDIA kernel module is built in-image with DKMS (`dkms build/install`) during the container build. Secure Boot must be **disabled** on the hardware (the module is unsigned). The `omit-nvidia-initramfs.conf` dracut config ensures nvidia modules are excluded from the initramfs (loaded from the live root instead), which keeps the initramfs small enough for EFI allocation.
+The NVIDIA kernel module (open variant, `kmod-nvidia-open-dkms`; the proprietary `kmod-nvidia-latest-dkms` was discontinued at driver 615) is built in-image with DKMS (`dkms build/install`) during the container build. Secure Boot must be **disabled** on the hardware (the module is unsigned). The `omit-nvidia-initramfs.conf` dracut config ensures nvidia modules are excluded from the initramfs (loaded from the live root instead), which keeps the initramfs small enough for EFI allocation.
 
 ## HTCondor
 
