@@ -78,7 +78,8 @@ RUN dnf install -y \
 # Numerical and physics libraries (GREEN, ALPS, ALPSCore, pySCF prerequisites)
 #   - openblas: BLAS/LAPACK (GREEN requires vendor BLAS; OpenBLAS is a good default)
 #   - eigen3: required by GREEN >= 3.4.0 and ALPSCore
-#   - boost: required by ALPS and ALPSCore
+#   - boost: runtime libs only (1.75) for prebuilt binaries; headers/devel come from the
+#     source-built Boost further down
 #   - fftw: required by many QMC codes
 #   - gmp/gmpxx/mpfr: required by GREEN analytical continuation (Caratheodory) module
 #   - libxc: exchange-correlation functionals (pySCF optional but recommended)
@@ -87,7 +88,6 @@ RUN dnf install -y \
     openblas-devel \
     eigen3-devel \
     boost \
-    boost-devel \
     fftw \
     fftw-devel \
     fftw-libs \
@@ -371,6 +371,24 @@ RUN curl -fsSL \
     && ln -s /opt/eclipse/eclipse /usr/local/bin/eclipse \
     && printf '[Desktop Entry]\nVersion=1.0\nType=Application\nName=Eclipse CDT\nIcon=/opt/eclipse/icon.xpm\nExec=/opt/eclipse/eclipse\nCategories=Development;IDE;\nTerminal=false\nStartupWMClass=Eclipse\n' \
         > /usr/share/applications/eclipse-cdt.desktop
+
+# Boost 1.92.0 from source — EL9 only ships 1.75 (2020), which is too old for current codes.
+# Installed to /usr/local so gcc and CMake find it by default; boost-devel (1.75) is not installed
+# to avoid mixing headers. Built with system GCC 11; the C++ ABI is compatible with gcc-toolset-13–15.
+# MPI and Python components are not built. Releases: https://www.boost.org/releases/
+RUN BOOST_VER=1.92.0 \
+    && BOOST_SHA256=5c1d40cb8e19adbf740a4ec2da35b3e58f3f5804b1dce44deb53df72193cbc6c \
+    && cd /tmp \
+    && curl -fsSLo boost.tar.bz2 \
+        "https://archives.boost.io/release/${BOOST_VER}/source/boost_${BOOST_VER//./_}.tar.bz2" \
+    && echo "${BOOST_SHA256}  boost.tar.bz2" | sha256sum -c - \
+    && tar -xjf boost.tar.bz2 \
+    && cd boost_${BOOST_VER//./_} \
+    && ./bootstrap.sh --prefix=/usr/local --libdir=/usr/local/lib64 --without-libraries=mpi,python \
+    && ./b2 -j"$(nproc)" -d1 variant=release link=shared threading=multi runtime-link=shared install \
+    && echo /usr/local/lib64 > /etc/ld.so.conf.d/usr-local-lib64.conf \
+    && ldconfig \
+    && cd / && rm -rf /tmp/boost.tar.bz2 /tmp/boost_${BOOST_VER//./_}
 
 # LaTeX — all packages via dnf (AppStream + EPEL); no TUG installer needed.
 # texlive-scheme-full is not packaged for CentOS 9, but individual packages cover
