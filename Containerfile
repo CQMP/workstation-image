@@ -515,6 +515,13 @@ RUN ln -sf /usr/lib/systemd/system/graphical.target /etc/systemd/system/default.
     && ln -sf graphical.target /usr/lib/systemd/system/default.target \
     && ln -sf gdm.service /usr/lib/systemd/system/display-manager.service
 
+# Small packages added after the big layers, so adding one here does not rebuild them
+# (and keeps the bootc upgrade download small on the 50 GB root partitions).
+#   - tmux: admin sessions that survive VPN drops
+RUN dnf install -y \
+    tmux \
+    && dnf clean all
+
 # ── Config files ────────────────────────────────────────────────────────────
 # All COPY instructions are grouped here, after all expensive build layers,
 # so that editing a config file does not invalidate the package/build cache.
