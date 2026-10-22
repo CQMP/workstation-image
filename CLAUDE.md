@@ -18,7 +18,7 @@ Key config locations and what they do:
 
 | Path | Purpose |
 |------|---------|
-| `Containerfile` | Full image definition — all packages, DKMS kernel module build, Boost 1.92 source build (`/usr/local`), systemd enables |
+| `Containerfile` | Full image definition — all packages, DKMS kernel module build, Boost 1.92 source build (`/usr/local`; Boost.MPI per MPI in `/usr/lib64/{openmpi,mpich}/lib`), systemd enables |
 | `ks.cfg` | Anaconda kickstart: partitions NVMe, pulls image from GHCR, triggers reboot |
 | `etc/sssd/sssd.conf` | LDAP auth via SSSD; bind password injected at build time via `--mount=type=secret` |
 | `etc/condor/config.d/00-ift-execute.conf` | HTCondor execute-node policy; idle start, CRIU checkpointing |

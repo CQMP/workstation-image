@@ -376,7 +376,12 @@ RUN curl -fsSL \
 # Boost 1.92.0 from source — EL9 only ships 1.75 (2020), which is too old for current codes.
 # Installed to /usr/local so gcc and CMake find it by default; boost-devel (1.75) is not installed
 # to avoid mixing headers. Built with system GCC 11; the C++ ABI is compatible with gcc-toolset-13–15.
-# MPI and Python components are not built. Releases: https://www.boost.org/releases/
+# Python components are not built. Releases: https://www.boost.org/releases/
+# Boost.MPI is built once per MPI, like Fedora's boost-openmpi/boost-mpich: libboost_mpi and its
+# CMake config go into /usr/lib64/{openmpi,mpich}/lib (on the path after `module load mpi/...`);
+# the module also prepends CMAKE_PREFIX_PATH so find_package(Boost COMPONENTS mpi) finds it.
+# b2 installs dependencies (serialization) next to it; those copies are removed again, except
+# BoostDetectToolset, which boost_mpi-config.cmake includes. libboost_mpi uses the /usr/local/lib64 ones.
 RUN BOOST_VER=1.92.0 \
     && BOOST_SHA256=5c1d40cb8e19adbf740a4ec2da35b3e58f3f5804b1dce44deb53df72193cbc6c \
     && cd /tmp \
@@ -389,7 +394,19 @@ RUN BOOST_VER=1.92.0 \
     && ./b2 -j"$(nproc)" -d1 variant=release link=shared threading=multi runtime-link=shared install \
     && echo /usr/local/lib64 > /etc/ld.so.conf.d/usr-local-lib64.conf \
     && ldconfig \
-    && cd / && rm -rf /tmp/boost.tar.bz2 /tmp/boost_${BOOST_VER//./_}
+    && ./bootstrap.sh --prefix=/usr/local --with-libraries=mpi \
+    && for mpi in openmpi mpich; do \
+        echo "using mpi : /usr/lib64/${mpi}/bin/mpicxx ;" > /tmp/user-config-${mpi}.jam \
+        && ./b2 -j"$(nproc)" -d1 --user-config=/tmp/user-config-${mpi}.jam --build-dir=/tmp/boost-build-${mpi} \
+            --prefix=/usr/local --includedir=/usr/local/include --libdir=/usr/lib64/${mpi}/lib \
+            variant=release link=shared threading=multi runtime-link=shared install \
+        && find /usr/lib64/${mpi}/lib -maxdepth 1 -name 'libboost_*' ! -name 'libboost_mpi*' -delete \
+        && find /usr/lib64/${mpi}/lib/cmake -mindepth 1 -maxdepth 1 ! -name 'boost_mpi-*' ! -name 'BoostDetectToolset-*' -exec rm -rf {} + \
+        && test -e /usr/lib64/${mpi}/lib/libboost_mpi.so \
+        && echo "prepend-path		CMAKE_PREFIX_PATH	/usr/lib64/${mpi}" >> /usr/share/modulefiles/mpi/${mpi}-x86_64 \
+        || exit 1; \
+    done \
+    && cd / && rm -rf /tmp/boost.tar.bz2 /tmp/boost_${BOOST_VER//./_} /tmp/boost-build-* /tmp/user-config-*.jam
 
 # LaTeX — all packages via dnf (AppStream + EPEL); no TUG installer needed.
 # texlive-scheme-full is not packaged for CentOS 9, but individual packages cover
