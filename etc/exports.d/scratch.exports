@@ -1,0 +1,2 @@
+# Export local /scratch as the NFSv4 pseudo-root so clients mount host:/.
+/scratch 10.42.1.0/24(rw,sync,no_subtree_check,root_squash,fsid=0)

@@ -1,13 +1,14 @@
+# /data from luttinger-storage (ZFS, one dataset per user, exported with
+# crossmnt). Started on first access by data.automount. Also overrides any
+# /data line Anaconda wrote to /etc/fstab on machines installed before the
+# local NVMe partition moved to /scratch.
 [Unit]
-Description=Scratch data partition
-After=local-fs-pre.target
-Before=local-fs.target
+Description=Shared data from luttinger-storage
+After=network-online.target
+Wants=network-online.target
 
 [Mount]
-What=/dev/disk/by-label/data
+What=10.98.2.4:/data
 Where=/data
-Type=xfs
-Options=defaults
-
-[Install]
-WantedBy=local-fs.target
+Type=nfs4
+Options=vers=4.2,rw,hard,noatime,nosuid,nodev

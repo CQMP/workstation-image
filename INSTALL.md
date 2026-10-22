@@ -105,7 +105,7 @@ done
 ### 3. Unattended install
 
 The install runs without interaction. It will:
-- Partition the NVMe drive (512 MB EFI + 1 GB /boot + 50 GB / + rest as /data)
+- Partition the NVMe drive (512 MB EFI + 1 GB /boot + 50 GB / + rest as local /scratch; /data is NFS from luttinger-storage)
 - Pull the OS image from `ghcr.io/cqmp/centos9-workstation:latest` (~10–20 min depending on network)
 - Reboot automatically
 

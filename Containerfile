@@ -525,14 +525,16 @@ RUN --mount=type=secret,id=ldap_password \
 
 RUN mkdir -p /etc/exports.d
 COPY etc/auto.master /etc/auto.master
-COPY etc/auto.shared_data /etc/auto.shared_data
-COPY etc/exports.d/data.exports /etc/exports.d/data.exports
-RUN mkdir -p /dmj /expo /repo /shared_data
+COPY etc/auto.shared_scratch /etc/auto.shared_scratch
+COPY etc/exports.d/scratch.exports /etc/exports.d/scratch.exports
+RUN mkdir -p /dmj /expo /repo /shared_scratch
 RUN sed -i 's/^automount:.*/automount: files sss/' /etc/nsswitch.conf \
     || echo 'automount: files sss' >> /etc/nsswitch.conf
 
+COPY etc/systemd/system/scratch.mount /etc/systemd/system/scratch.mount
+COPY etc/systemd/system/scratch-homedirs.service /etc/systemd/system/scratch-homedirs.service
 COPY etc/systemd/system/data.mount /etc/systemd/system/data.mount
-COPY etc/systemd/system/data-homedirs.service /etc/systemd/system/data-homedirs.service
+COPY etc/systemd/system/data.automount /etc/systemd/system/data.automount
 COPY etc/systemd/system/bootc-update.service /etc/systemd/system/bootc-update.service
 COPY etc/systemd/system/bootc-update.timer /etc/systemd/system/bootc-update.timer
 COPY etc/systemd/system/cups-printers.service /etc/systemd/system/cups-printers.service
@@ -543,15 +545,16 @@ COPY etc/systemd/system/cups-printers.service /etc/systemd/system/cups-printers.
 # delays it until home dirs and LDAP user lookup are actually available.
 COPY etc/systemd/system/vncserver@.service.d/10-wait-for-home.conf /etc/systemd/system/vncserver@.service.d/10-wait-for-home.conf
 
-RUN systemctl enable data.mount \
-    && systemctl enable data-homedirs.service \
+RUN systemctl enable scratch.mount \
+    && systemctl enable scratch-homedirs.service \
+    && systemctl enable data.automount \
     && systemctl enable bootc-update.timer \
     && systemctl enable cups-printers.service \
     && systemctl mask bootc-fetch-apply-updates.timer bootc-fetch-apply-updates.service kdump.service
 
 COPY etc/NetworkManager/conf.d/hostname.conf /etc/NetworkManager/conf.d/hostname.conf
 
-RUN mkdir -p /etc/ssh/authorized_keys.d /etc/ssh/sshd_config.d /root/.ssh /data
+RUN mkdir -p /etc/ssh/authorized_keys.d /etc/ssh/sshd_config.d /root/.ssh /data /scratch
 COPY etc/ssh/sshd_config.d/50-ift.conf /etc/ssh/sshd_config.d/50-ift.conf
 COPY etc/ssh/authorized_keys.d/egull /etc/ssh/authorized_keys.d/egull
 COPY root/.ssh/authorized_keys /root/.ssh/authorized_keys

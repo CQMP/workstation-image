@@ -1,0 +1,8 @@
+[Unit]
+Description=Automount shared data from luttinger-storage
+
+[Automount]
+Where=/data
+
+[Install]
+WantedBy=remote-fs.target

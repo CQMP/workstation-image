@@ -1,0 +1,13 @@
+[Unit]
+Description=Local NVMe scratch partition
+After=local-fs-pre.target
+Before=local-fs.target
+
+[Mount]
+What=/dev/disk/by-label/data
+Where=/scratch
+Type=xfs
+Options=defaults
+
+[Install]
+WantedBy=local-fs.target

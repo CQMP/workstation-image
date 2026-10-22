@@ -23,12 +23,13 @@ Key config locations and what they do:
 | `etc/sssd/sssd.conf` | LDAP auth via SSSD; bind password injected at build time via `--mount=type=secret` |
 | `etc/condor/config.d/00-ift-execute.conf` | HTCondor execute-node policy; idle start, CRIU checkpointing |
 | `etc/systemd/system/bootc-update.{service,timer}` | Automatic `bootc upgrade && reboot` every Sunday 04:00 UTC |
-| `etc/systemd/system/data.mount` | Mounts local NVMe `/data` scratch partition |
-| `etc/systemd/system/data-homedirs.service` | Creates `/data/<user>/` dirs for each allowed user on boot |
+| `etc/systemd/system/data.{mount,automount}` | Automounts `/data` via NFSv4.2 from `luttinger-storage` (`10.98.2.4:/data`) |
+| `etc/systemd/system/scratch.mount` | Mounts local NVMe scratch partition (label `data`) at `/scratch` |
+| `etc/systemd/system/scratch-homedirs.service` | Creates `/scratch/<user>/` dirs for each allowed user on boot |
 | `etc/systemd/system/cups-printers.service` | Registers shared network printers (e.g. Sharp MX-C358F) with CUPS on boot, driverlessly via IPP Everywhere |
 | `etc/auto.master` | autofs mounts for `/dmj`, `/expo`, `/repo` and peer workstation scratch disks |
-| `etc/auto.shared_data` | autofs map for `/shared_data/<host>` NFS mounts of workstation `/data` disks |
-| `etc/exports.d/data.exports` | NFS export of local `/data` to the workstation subnet |
+| `etc/auto.shared_scratch` | autofs map for `/shared_scratch/<host>` NFS mounts of workstation `/scratch` disks |
+| `etc/exports.d/scratch.exports` | NFS export of local `/scratch` to the workstation subnet |
 | `usr/lib/bootc/kargs.d/nvidia.toml` | Kernel args: `nvidia-drm.modeset=1`, `modprobe.blacklist=nouveau` |
 | `etc/dracut.conf.d/` | Initramfs tuning: nouveau blacklisted in initrd; modules stripped for small image |
 | `machines.md` | Machine inventory: names, MACs, IPs (10.42.1.40–50) |
@@ -49,7 +50,7 @@ The condor token file permissions are strict: directory `700 root:root`, file `6
 2. Push to `main` — GitHub Actions rebuilds and pushes `ghcr.io/cqmp/centos9-workstation:latest`
 3. On each workstation: `sudo bootc upgrade && sudo reboot`
 
-To add a user: add their Unix username to `simple_allow_users` in `etc/sssd/sssd.conf` **and** to the user list in `etc/systemd/system/data-homedirs.service`.
+To add a user: add their Unix username to `simple_allow_users` in `etc/sssd/sssd.conf` **and** to the user list in `etc/systemd/system/scratch-homedirs.service`. Their `/data/<user>` dataset on `luttinger-storage` is created from the same `simple_allow_users` list by the `zfs_userdata` Ansible role in `../cluster_configuration`; rerun it after the image is pushed.
 
 ## NVIDIA / DKMS notes
 
@@ -71,8 +72,9 @@ If LDAP auth fails, check: (1) user exists in LDAP Unix domain, (2) user is in `
 ## File systems on the workstations
 
 - `/dmj`, `/expo`, `/repo` — NFS via autofs (home dirs, shared code, backed up)
-- `/data` — local NVMe scratch, per-user dirs created by `data-homedirs.service`, **not backed up**
-- `/shared_data/<host>` — on-demand NFS access to another workstation's `/data`; availability depends on that workstation being powered on and reachable
+- `/data` — NFSv4.2 from `luttinger-storage` (`10.98.2.4:/data`, ZFS raidz2, one dataset per user with a 10 TB quota), systemd automount, `hard` mount. Exports, quotas and the workstation client list (read from `machines.md`) are managed in `../cluster_configuration`
+- `/scratch` — local NVMe scratch, per-user dirs created by `scratch-homedirs.service`, **not backed up** (was mounted at `/data` before Oct 2026; same partition, label `data`)
+- `/shared_scratch/<host>` — on-demand NFS access to another workstation's `/scratch`; availability depends on that workstation being powered on and reachable
 
 ## Printing
 
@@ -91,5 +93,5 @@ curl -fsSL "https://quay.io/api/v1/repository/centos-bootc/centos-bootc/tag/?spe
 
 ## Open items (as of June 2026)
 
-- Dominika Zgid has no FUW LDAP account yet; add uid to `simple_allow_users` and `data-homedirs.service` once known
+- Dominika Zgid has no FUW LDAP account yet; add uid to `simple_allow_users` and `scratch-homedirs.service` once known
 - No host is currently named Luttinger (the former Luttinger was renamed Tomonaga in DNS, Sep 2026)

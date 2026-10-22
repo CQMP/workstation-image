@@ -56,7 +56,7 @@ the following configuration:
   \item Local storage: one Kioxia XG10d 1 TB NVMe device.  The standard
         installation uses a 512 MB EFI partition, a 1 GB \texttt{/boot}
         partition, a 50 GB operating-system partition, and the remainder as
-        \texttt{/data}.
+        local scratch at \texttt{/scratch}.
   \item Graphics: integrated Intel Arrow Lake-S graphics plus an NVIDIA
         RTX 2000 Ada Generation GPU.
   \item Network: Intel I219-LM Ethernet.
@@ -219,7 +219,8 @@ Key directives:
 Files listed relative to the submit file are transferred automatically.  For
 large datasets it is more efficient to reference the shared NFS mounts
 (\texttt{/dmj}, \texttt{/expo}) directly from the job, or to pre-stage data
-on the execute node's local \texttt{/data} scratch disk.
+on the execute node's local \texttt{/scratch} disk.  Jobs can also read and
+write \texttt{/data} directly.
 
 \subsection{Submitting and monitoring jobs}
 
@@ -426,22 +427,34 @@ mount points \texttt{/dmj}, \texttt{/expo}, and \texttt{/repo}.
 These network file systems are appropriate for home directories, shared code,
 small inputs, and files that need central management.
 
+Large data sets live on \texttt{/data}, which is mounted over NFS (version
+4.2) from the cluster storage server \texttt{luttinger-storage}.  It is the
+same \texttt{/data} on every workstation.  Each allowed user has a directory
+\texttt{/data/<user>} with a quota of 10~TB.  The server stores the data on
+ZFS with double-parity RAID (raidz2), which survives two failed disks, but
+\texttt{/data} is not backed up and has no snapshots yet: a deleted file
+cannot be restored.  The workstations mount \texttt{/data} on first access.
+If the storage server is unreachable, programs that access \texttt{/data} wait
+until it returns instead of failing.
+
 Each workstation also has a fast local NVMe scratch disk mounted at
-\texttt{/data}.  The standard installation creates per-user directories there
-for allowed users.  This disk is not backed up.  It should be used for
+\texttt{/scratch}.  (Before October 2026 this disk was mounted at
+\texttt{/data}; existing files are now under \texttt{/scratch/<user>}.)  The
+standard installation creates per-user directories there for allowed users.
+This disk is not backed up.  It should be used for
 simulation scratch data, compilation trees, temporary files, local virtual
 environments, and other high-I/O work that does not need backup.  Important
 results should be copied back to backed-up network storage.
 
 The local scratch disks are also exported within the workstation subnet and are
-available on demand under \texttt{/shared\_data}.  For example,
-\texttt{/shared\_data/matsubara} accesses the \texttt{/data} disk on
-\texttt{matsubara}, \texttt{/shared\_data/hubbard} accesses the \texttt{/data}
+available on demand under \texttt{/shared\_scratch}.  For example,
+\texttt{/shared\_scratch/matsubara} accesses the \texttt{/scratch} disk on
+\texttt{matsubara}, \texttt{/shared\_scratch/hubbard} accesses the \texttt{/scratch}
 disk on \texttt{hubbard}, and similarly for the other hosts listed in
 \texttt{machines.md}.  These mounts are managed by autofs, so a host is mounted
 only when its directory is accessed.
 
-The \texttt{/shared\_data/<host>} paths are a convenience for moving or reading
+The \texttt{/shared\_scratch/<host>} paths are a convenience for moving or reading
 scratch data between workstations; they do not make the data backed up or
 centrally managed.  The mounts use soft NFS semantics so that access to an
 offline workstation fails rather than indefinitely blocking a user's shell or

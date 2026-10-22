@@ -1,8 +1,8 @@
 [Unit]
-Description=Create /data per-user directories for authorized users
-After=data.mount sssd.service network-online.target
+Description=Create /scratch per-user directories for authorized users
+After=scratch.mount sssd.service network-online.target
 Wants=network-online.target
-Requires=data.mount
+Requires=scratch.mount
 
 [Service]
 Type=oneshot
@@ -11,10 +11,10 @@ ExecStart=/bin/bash -c '\
   for attempt in $(seq 1 18); do \
     rc=0; \
     for user in egull rfarid ajazdzewska amarie abalbi jdobrzyniecki aaleryani cwei jgrabarczyk; do \
-      dir=/data/$user; \
+      dir=/scratch/$user; \
       [ -d "$dir" ] && continue; \
       if ! id "$user" &>/dev/null; then \
-        echo "data-homedirs: $user not resolvable (attempt $attempt/18), retrying in 10s"; \
+        echo "scratch-homedirs: $user not resolvable (attempt $attempt/18), retrying in 10s"; \
         rc=1; continue; \
       fi; \
       mkdir -p "$dir" && chown "$user:$user" "$dir" && chmod 700 "$dir"; \
@@ -22,7 +22,7 @@ ExecStart=/bin/bash -c '\
     [ $rc -eq 0 ] && exit 0; \
     sleep 10; \
   done; \
-  echo "data-homedirs: gave up after 3 minutes"; \
+  echo "scratch-homedirs: gave up after 3 minutes"; \
   exit 1'
 
 [Install]
