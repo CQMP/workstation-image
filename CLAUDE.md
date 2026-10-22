@@ -56,6 +56,8 @@ To add a user: add their Unix username to `simple_allow_users` in `etc/sssd/sssd
 
 The NVIDIA kernel module (open variant, `kmod-nvidia-open-dkms`; the proprietary `kmod-nvidia-latest-dkms` was discontinued at driver 615) is built in-image with DKMS (`dkms build/install`) during the container build. Secure Boot must be **disabled** on the hardware (the module is unsigned). The `omit-nvidia-initramfs.conf` dracut config ensures nvidia modules are excluded from the initramfs (loaded from the live root instead), which keeps the initramfs small enough for EFI allocation.
 
+CUDA is installed as components (`cuda-compiler`, `cuda-libraries{,-devel}`, `cuda-command-line-tools`, `cuda-nvml-devel`, versioned like `-13-4` after the latest `cuda-toolkit`), not the `cuda-toolkit` meta-package: that adds ~2.5 GB of Nsight Systems/Compute GUIs. The image is ~15 GB compressed (~40 GB on disk) on a 50 GB root partition, so upgrades with large layer changes fail with `min-free-space-percent '3%' would be exceeded`; keep the image lean.
+
 ## HTCondor
 
 Central manager: `condor.gull-group.org`. Each workstation runs `MASTER`, `STARTD`, and `SCHEDD`. A startd cron monitor publishes local graphical-session idle time from systemd-logind because HTCondor's `KeyboardIdle` fallback does not see GNOME input without `condor_kbdd`. Jobs start only when `LocalInteractiveIdle > 900s` and `LoadAvg < 0.5`; remote SSH sessions do not inhibit jobs. CRIU checkpointing is enabled with `cuda-checkpoint` for GPU jobs; vacate time is 1 hour.

@@ -193,13 +193,26 @@ RUN dnf config-manager --add-repo \
     && dnf module disable nvidia-driver -y \
     && dnf clean all
 
-# Latest NVIDIA driver + CUDA toolkit — all from official NVIDIA repo, no version mixing
-RUN dnf install -y \
+# Latest NVIDIA driver + CUDA toolkit — all from official NVIDIA repo, no version mixing.
+# The CUDA toolkit without Nsight Systems/Compute and docs (cuda-toolkit pulls in ~2.5 GB of
+# Nsight GUIs; the 50 GB root partition cannot hold image upgrades otherwise): compiler,
+# runtime and devel libraries, command-line tools (cuda-gdb, cupti, sanitizer) and NVML headers.
+# Only cuda-toolkit has an unversioned name, so the components follow its latest version.
+RUN CUDA_VER=$(dnf repoquery -q --latest-limit=1 --qf '%{version}' cuda-toolkit | cut -d. -f1,2 | tr . -) \
+    && test -n "${CUDA_VER}" \
+    && dnf install -y \
     nvidia-driver \
     nvidia-driver-libs \
     nvidia-driver-cuda \
-    cuda-toolkit \
+    cuda-compiler-${CUDA_VER} \
+    cuda-libraries-${CUDA_VER} \
+    cuda-libraries-devel-${CUDA_VER} \
+    cuda-command-line-tools-${CUDA_VER} \
+    cuda-nvml-devel-${CUDA_VER} \
     dkms \
+    && test -x /usr/local/cuda/bin/nvcc \
+    && test -x /usr/local/cuda/bin/cuda-gdb \
+    && ! rpm -q nsight-systems nsight-compute >/dev/null \
     && dnf clean all
 
 # Blacklist nouveau before dracut so the rule is embedded in the initramfs.
