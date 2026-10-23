@@ -31,6 +31,7 @@ Key config locations and what they do:
 | `etc/auto.shared_scratch` | autofs map for `/shared_scratch/<host>` NFS mounts of workstation `/scratch` disks |
 | `etc/exports.d/scratch.exports` | NFS export of local `/scratch` to the workstation subnet |
 | `usr/lib/bootc/kargs.d/nvidia.toml` | Kernel args: `nvidia-drm.modeset=1`, `modprobe.blacklist=nouveau` |
+| `etc/profile.d/cuda.sh` | Appends `/usr/local/cuda/bin` (nvcc, cuda-gdb) to the PATH |
 | `etc/dracut.conf.d/` | Initramfs tuning: nouveau blacklisted in initrd; modules stripped for small image |
 | `machines.md` | Machine inventory: names, MACs, IPs (10.42.1.40–50) |
 | `.github/workflows/build.yml` | CI: build + push to GHCR on every push to `main` and weekly Sunday 00:17 UTC (well ahead of the 04:00 UTC `bootc-update.timer`; GitHub starts scheduled runs up to ~1.5h late) |
@@ -56,7 +57,7 @@ To add a user: add their Unix username to `simple_allow_users` in `etc/sssd/sssd
 
 The NVIDIA kernel module (open variant, `kmod-nvidia-open-dkms`; the proprietary `kmod-nvidia-latest-dkms` was discontinued at driver 615) is built in-image with DKMS (`dkms build/install`) during the container build. Secure Boot must be **disabled** on the hardware (the module is unsigned). The `omit-nvidia-initramfs.conf` dracut config ensures nvidia modules are excluded from the initramfs (loaded from the live root instead), which keeps the initramfs small enough for EFI allocation.
 
-CUDA is installed as components (`cuda-compiler`, `cuda-libraries{,-devel}`, `cuda-command-line-tools`, `cuda-nvml-devel`, versioned like `-13-4` after the latest `cuda-toolkit`), not the `cuda-toolkit` meta-package: that adds ~2.5 GB of Nsight Systems/Compute GUIs. The image is ~15 GB compressed (~40 GB on disk) on a 50 GB root partition, so upgrades with large layer changes fail with `min-free-space-percent '3%' would be exceeded`; keep the image lean.
+CUDA is installed as components (`cuda-compiler`, `cuda-libraries{,-devel}`, `cuda-command-line-tools`, `cuda-nvml-devel`, versioned like `-13-4` after the latest `cuda-toolkit`), not the `cuda-toolkit` meta-package: that adds ~2.5 GB of Nsight Systems/Compute GUIs. The image is ~14 GB compressed (~40 GB on disk). Machines installed with the old 50 GB root partition cannot stage upgrades with large layer changes (`Insufficient free space` / `min-free-space-percent '3%' would be exceeded`); `ks.cfg` now uses 200 GiB, and Kadanoff was converted in place (Oct 2026). Keep the image lean, and put small additions in late layers so they don't rebuild the big ones. `etc/profile.d/cuda.sh` puts `/usr/local/cuda/bin` on the PATH.
 
 ## HTCondor
 

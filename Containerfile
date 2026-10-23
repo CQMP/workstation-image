@@ -541,6 +541,7 @@ COPY usr/lib/bootc/kargs.d/nvidia.toml /usr/lib/bootc/kargs.d/nvidia.toml
 
 # HiDPI: 2x scaling for user sessions and GDM login screen
 COPY etc/vconsole.conf /etc/vconsole.conf
+COPY etc/profile.d/cuda.sh /etc/profile.d/cuda.sh
 COPY etc/X11/xorg.conf.d/00-keyboard.conf /etc/X11/xorg.conf.d/00-keyboard.conf
 COPY etc/dconf/profile/user /etc/dconf/profile/user
 COPY etc/dconf/db/local.d/01-hidpi /etc/dconf/db/local.d/01-hidpi
