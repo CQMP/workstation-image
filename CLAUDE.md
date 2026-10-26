@@ -22,7 +22,7 @@ Key config locations and what they do:
 | `ks.cfg` | Anaconda kickstart: partitions NVMe, pulls image from GHCR, triggers reboot |
 | `etc/sssd/sssd.conf` | LDAP auth via SSSD; bind password injected at build time via `--mount=type=secret` |
 | `etc/condor/config.d/00-ift-execute.conf` | HTCondor execute-node policy; idle start, CRIU checkpointing |
-| `etc/systemd/system/bootc-update.{service,timer}` | Automatic `bootc upgrade && reboot` every Sunday 04:00 UTC |
+| `etc/systemd/system/bootc-update.{service,timer}` | `bootc upgrade --apply` every Sunday 04:00 UTC: reboots only if a new image was staged |
 | `etc/systemd/system/data.{mount,automount}` | Automounts `/data` via NFSv4.2 from `luttinger-storage` (`10.98.2.4:/data`) |
 | `etc/systemd/system/scratch.mount` | Mounts local NVMe scratch partition (label `data`) at `/scratch` |
 | `etc/systemd/system/scratch-homedirs.service` | Creates `/scratch/<user>/` dirs for each allowed user on boot |
@@ -34,7 +34,11 @@ Key config locations and what they do:
 | `etc/profile.d/cuda.sh` | Appends `/usr/local/cuda/bin` (nvcc, cuda-gdb) to the PATH |
 | `etc/dracut.conf.d/` | Initramfs tuning: nouveau blacklisted in initrd; modules stripped for small image |
 | `machines.md` | Machine inventory: names, MACs, IPs (10.42.1.40–50) |
-| `.github/workflows/build.yml` | CI: build + push to GHCR on every push to `main` and weekly Sunday 00:17 UTC (well ahead of the 04:00 UTC `bootc-update.timer`; GitHub starts scheduled runs up to ~1.5h late) |
+| `.github/workflows/build.yml` | CI: build + push to GHCR on every push to `main` and weekly Sunday 00:17 UTC (well ahead of the 04:00 UTC `bootc-update.timer`; GitHub starts scheduled runs up to ~1.5h late). Passes `UPDATE_STAMP` (date of the most recent Sunday) so the weekly `dnf upgrade` layer reruns once a week |
+
+## Package updates
+
+The package layers come from the BuildKit cache and keep the versions they were built with, so a rebuild alone does not update anything. A late `dnf upgrade` layer reruns whenever its `UPDATE_STAMP` build arg changes (CI: once a week, with the Sunday build) and carries only the updated packages. It excludes the kernel, the NVIDIA driver and CUDA: the nvidia module is built by DKMS for the image's single kernel, so those update only with a base digest bump (see below) or a change to the NVIDIA/DKMS layers. That rebuilds nearly everything, so it is a full image download.
 
 ## Secrets (GitHub Actions)
 

@@ -35,9 +35,17 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
+      # Date of the most recent Sunday (today on Sundays): the Containerfile's package update
+      # layer reruns once a week, with the scheduled build, and is cached for pushes in between.
+      - name: Package update stamp
+        id: stamp
+        run: echo "sunday=$(date -u -d "-$(date -u +%w) days" +%F)" >> "$GITHUB_OUTPUT"
+
       - name: Build and push
         uses: docker/build-push-action@v7
         with:
+          build-args: |
+            UPDATE_STAMP=${{ steps.stamp.outputs.sunday }}
           context: .
           file: Containerfile
           push: true

@@ -161,8 +161,10 @@ and the USB boot are needed per machine.
 
 ## Updating the image later
 
-The image rebuilds automatically every Sunday at 3am UTC and on every push to `main`.
-Machines pull updates via bootc. To trigger an immediate update on a running machine:
+The image rebuilds automatically every Sunday shortly after midnight UTC (picking up that
+week's package updates, except the kernel and NVIDIA driver) and on every push to `main`.
+Every Sunday at 04:00 UTC each machine runs `bootc upgrade --apply`, which reboots it only
+if a new image was staged. To trigger an immediate update on a running machine:
 
 ```bash
 sudo bootc upgrade

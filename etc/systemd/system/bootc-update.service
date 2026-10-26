@@ -1,7 +1,6 @@
 [Unit]
-Description=Weekly bootc image upgrade and reboot
+Description=Weekly bootc image upgrade (reboots only if an update was staged)
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/bootc upgrade
-ExecStartPost=/usr/bin/systemctl reboot
+ExecStart=/usr/bin/bootc upgrade --apply

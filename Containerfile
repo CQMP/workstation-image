@@ -522,6 +522,20 @@ RUN dnf install -y \
     tmux \
     && dnf clean all
 
+# Weekly package updates. The layers above come from the build cache and keep the package
+# versions they were built with; this layer reruns whenever UPDATE_STAMP changes (CI passes the
+# date of the most recent Sunday), so each week's image carries only the updated packages on
+# top. The kernel and the NVIDIA driver stay out: the nvidia module is built by DKMS for the
+# image's one kernel above, and a newer kernel here would boot without it. They update when
+# the base digest or the NVIDIA/DKMS layers change.
+ARG UPDATE_STAMP=none
+RUN echo "package update ${UPDATE_STAMP}" \
+    && dnf upgrade -y \
+        --exclude='kernel*' --exclude='kmod-nvidia*' --exclude='nvidia-*' \
+        --exclude='libnvidia*' --exclude='cuda*' --exclude='dkms' \
+    && test "$(rpm -q kernel | wc -l)" = 1 \
+    && dnf clean all
+
 # ── Config files ────────────────────────────────────────────────────────────
 # All COPY instructions are grouped here, after all expensive build layers,
 # so that editing a config file does not invalidate the package/build cache.
