@@ -580,6 +580,9 @@ COPY etc/auto.master /etc/auto.master
 COPY etc/auto.shared_scratch /etc/auto.shared_scratch
 COPY etc/exports.d/scratch.exports /etc/exports.d/scratch.exports
 RUN mkdir -p /dmj /expo /repo /shared_scratch
+# NFSv4 ID mapping domain of the department NAS: without it the NFS homes show every owner as nobody.
+COPY etc/idmapd.conf /etc/idmapd.conf
+RUN chmod 644 /etc/idmapd.conf && test "$(nfsidmap -d)" = fuw.edu.pl
 RUN sed -i 's/^automount:.*/automount: files sss/' /etc/nsswitch.conf \
     || echo 'automount: files sss' >> /etc/nsswitch.conf
 

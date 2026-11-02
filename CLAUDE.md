@@ -28,6 +28,7 @@ Key config locations and what they do:
 | `etc/systemd/system/scratch-homedirs.service` | Creates `/scratch/<user>/` dirs for each allowed user on boot |
 | `etc/systemd/system/cups-printers.service` | Registers shared network printers (e.g. Sharp MX-C358F) with CUPS on boot, driverlessly via IPP Everywhere |
 | `etc/auto.master` | autofs mounts for `/dmj`, `/expo`, `/repo` and peer workstation scratch disks |
+| `etc/idmapd.conf` | NFSv4 ID mapping domain `fuw.edu.pl` (the department NAS sends owners as `user@fuw.edu.pl`; without it the homes show `nobody`) |
 | `etc/auto.shared_scratch` | autofs map for `/shared_scratch/<host>` NFS mounts of workstation `/scratch` disks |
 | `etc/exports.d/scratch.exports` | NFS export of local `/scratch` to the workstation subnet |
 | `usr/lib/bootc/kargs.d/nvidia.toml` | Kernel args: `nvidia-drm.modeset=1`, `modprobe.blacklist=nouveau` |
