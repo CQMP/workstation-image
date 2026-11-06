@@ -1,0 +1,4 @@
+# A boot that cannot finish reboots instead of waiting at a console, so that GRUB's boot
+# counter (ift-update) can fall back to the previous image: kernel panic -> reboot after
+# 10 s; a failure in the initramfs -> reboot instead of an emergency shell.
+kargs = ["panic=10", "rd.emergency=reboot"]

@@ -563,6 +563,7 @@ COPY etc/systemd/system/condor.service.d/10-pool-token.conf /etc/systemd/system/
 # Kernel arguments (bootc reads these from /usr/lib/bootc/kargs.d/ at deployment time)
 COPY usr/lib/bootc/kargs.d/audit.toml /usr/lib/bootc/kargs.d/audit.toml
 COPY usr/lib/bootc/kargs.d/nvidia.toml /usr/lib/bootc/kargs.d/nvidia.toml
+COPY usr/lib/bootc/kargs.d/recovery.toml /usr/lib/bootc/kargs.d/recovery.toml
 
 # HiDPI: 2x scaling for user sessions and GDM login screen
 COPY etc/vconsole.conf /etc/vconsole.conf
@@ -607,6 +608,12 @@ COPY etc/systemd/system/data.mount /etc/systemd/system/data.mount
 COPY etc/systemd/system/data.automount /etc/systemd/system/data.automount
 COPY etc/systemd/system/bootc-update.service /etc/systemd/system/bootc-update.service
 COPY etc/systemd/system/bootc-update.timer /etc/systemd/system/bootc-update.timer
+# Weekly update with automatic rollback: GRUB boot counting, boot check, watchdog
+COPY --chmod=0755 usr/local/libexec/ift-update /usr/local/libexec/ift-update
+COPY --chmod=0755 usr/local/libexec/ift-boot-check /usr/local/libexec/ift-boot-check
+COPY usr/lib/ift/grub-user.cfg /usr/lib/ift/grub-user.cfg
+COPY etc/systemd/system/ift-boot-check.service /etc/systemd/system/ift-boot-check.service
+COPY usr/lib/systemd/system.conf.d/50-ift-watchdog.conf /usr/lib/systemd/system.conf.d/50-ift-watchdog.conf
 COPY etc/systemd/system/cups-printers.service /etc/systemd/system/cups-printers.service
 
 # GitHub Actions runner VMs while the workstation is idle (inert until /etc/gh-runner/app.pem exists)
@@ -629,6 +636,7 @@ RUN systemctl enable scratch.mount \
     && systemctl enable scratch-homedirs.service \
     && systemctl enable data.automount \
     && systemctl enable bootc-update.timer \
+    && systemctl enable ift-boot-check.service \
     && systemctl enable cups-printers.service \
     && systemctl enable gh-runner-vm.service \
     && systemctl mask bootc-fetch-apply-updates.timer bootc-fetch-apply-updates.service kdump.service

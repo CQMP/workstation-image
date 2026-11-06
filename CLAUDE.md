@@ -22,7 +22,8 @@ Key config locations and what they do:
 | `ks.cfg` | Anaconda kickstart: partitions NVMe, pulls image from GHCR, triggers reboot |
 | `etc/sssd/sssd.conf` | LDAP auth via SSSD; no password (host-local, see Secrets) |
 | `etc/condor/config.d/00-ift-execute.conf` | HTCondor execute-node policy; idle start, CRIU checkpointing |
-| `etc/systemd/system/bootc-update.{service,timer}` | `bootc upgrade --apply` every Sunday 04:00 UTC: reboots only if a new image was staged |
+| `etc/systemd/system/bootc-update.{service,timer}`, `usr/local/libexec/ift-update` | Weekly update every Sunday 04:00 UTC with automatic rollback (see Updates and rollback) |
+| `etc/systemd/system/ift-boot-check.service`, `usr/local/libexec/ift-boot-check`, `usr/lib/ift/grub-user.cfg` | After an update: boot check, GRUB boot counting, rollback |
 | `etc/systemd/system/data.{mount,automount}` | Automounts `/data` via NFSv4.2 from `luttinger-storage` (`10.98.2.4:/data`) |
 | `etc/systemd/system/scratch.mount` | Mounts local NVMe scratch partition (label `data`) at `/scratch` |
 | `etc/systemd/system/scratch-homedirs.service` | Creates `/scratch/<user>/` dirs for each allowed user on boot |
@@ -38,9 +39,18 @@ Key config locations and what they do:
 | `machines.md` | Machine inventory: names, MACs, IPs (10.42.1.40–50) |
 | `.github/workflows/build.yml` | CI: build + push to GHCR on every push to `main` and weekly Sunday 00:17 UTC (well ahead of the 04:00 UTC `bootc-update.timer`; GitHub starts scheduled runs up to ~1.5h late). Passes `UPDATE_STAMP` (date of the most recent Sunday) so the weekly `dnf upgrade` layer reruns once a week |
 
-## Package updates
+## Updates and rollback
 
-The package layers come from the BuildKit cache and keep the versions they were built with, so a rebuild alone does not update anything. A late `dnf upgrade` layer reruns whenever its `UPDATE_STAMP` build arg changes (CI: once a week, with the Sunday build) and carries only the updated packages. It excludes the kernel and NVIDIA's whole repository (`--disablerepo=cuda-rhel9-x86_64`: driver, `xorg-x11-nvidia`, CUDA): the nvidia module is built by DKMS for the image's single kernel, so those update only with a base digest bump (see below) or a change to the NVIDIA/DKMS layers. That rebuilds nearly everything, so it is a full image download.
+Kernel and packages update weekly. The Sunday CI build (00:17 UTC) moves the `FROM` line to the newest `centos-bootc:stream9` digest, which rebuilds everything including the DKMS nvidia module (so driver/CUDA update too), and commits the digest only if the build succeeds; a failed build leaves `:latest` alone. Between base changes, a late `dnf upgrade` layer reruns whenever its `UPDATE_STAMP` build arg changes (once a week) and carries only updated packages; it excludes the kernel and NVIDIA's repository (`--disablerepo=cuda-rhel9-x86_64`), whose updates come with the base rebuild. A base change is a full image download (~14 GB; 8 minutes on Hubbard). The bump can be run by hand: Actions, "Build and push workstation image", Run workflow, `bump_base`.
+
+On the machines (Sunday 04:00 UTC, `bootc-update.service` runs `ift-update`):
+
+1. `bootc upgrade` stages the new image, sets `ift_boot_counter=3` in `/boot/grub2/grubenv` and reboots. An image that already failed on this machine (`/var/lib/ift-update/failed`) is skipped.
+2. GRUB (`/boot/grub2/user.cfg`, installed from `usr/lib/ift/grub-user.cfg` by `ift-boot-check`; the bootupd-managed `grub.cfg` sources it) counts the attempts down; at 0 it boots the second entry, the previous deployment. Kernel panics (`panic=10`), initramfs failures (`rd.emergency=reboot`) and hangs (hardware watchdog, `50-ift-watchdog.conf`) turn into reboots, i.e. failed attempts.
+3. `ift-boot-check.service` checks the new image for up to 10 minutes: `nvidia-smi`, `gdm`, a ping to the default gateway, `sssd` and `condor` (if their secrets exist). Pass: the counter is unset. Fail: `bootc rollback` and reboot. If GRUB had fallen back, it undeploys the failed image so the working one stays the default.
+4. The outcome is in `journalctl -u ift-boot-check` ("Update OK" or "UPDATE FAILED"). Failed images are listed in `/var/lib/ift-update/failed`; delete the file to allow a retry. To test the rollback: `sudo touch /var/lib/ift-update/simulate-failure` before an update.
+
+Not covered: a boot that ends in systemd's emergency mode after the initramfs (e.g. a broken fstab entry) waits at the console.
 
 ## Secrets
 
@@ -116,7 +126,7 @@ If LDAP auth fails, check: (1) user exists in LDAP Unix domain, (2) user is in `
 
 ## Base image digest updates
 
-The `FROM` line in `Containerfile` is pinned to a digest. Update monthly:
+The `FROM` line in `Containerfile` is pinned to a digest, moved weekly by CI (see Updates and rollback). By hand:
 
 ```bash
 curl -fsSL "https://quay.io/api/v1/repository/centos-bootc/centos-bootc/tag/?specificTag=stream9&onlyActiveTags=true" \

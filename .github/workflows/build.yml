@@ -5,12 +5,18 @@ on:
     branches: [main, testing]  # testing pushes :testing, for trying a change on one machine (bootc switch)
   schedule:
     - cron: '17 0 * * 0'  # Sunday 00:17 UTC; GitHub delays scheduled runs by up to ~1.5h, must finish before the 04:00 UTC bootc-update.timer
+  workflow_dispatch:
+    inputs:
+      bump_base:
+        description: Move to the newest base image digest (as the Sunday build does)
+        type: boolean
+        default: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write   # the Sunday build commits the new base digest
       packages: write
 
     steps:
@@ -32,6 +38,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Weekly kernel and security updates: the Sunday build moves to the newest base image
+      # (new kernel, rebuilt NVIDIA module). The digest is committed only if the build
+      # succeeds; machines that fail to boot the result roll back (ift-update, ift-boot-check).
+      - name: Newest base image
+        id: base
+        if: github.event_name == 'schedule' || inputs.bump_base
+        run: |
+          digest=$(curl -fsSL "https://quay.io/api/v1/repository/centos-bootc/centos-bootc/tag/?specificTag=stream9&onlyActiveTags=true" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['tags'][0]['manifest_digest'])")
+          [[ $digest == sha256:* ]] || { echo "No digest: $digest"; exit 1; }
+          sed -i -E "s|(centos-bootc:stream9@)sha256:[0-9a-f]{64}|\1$digest|" Containerfile
+          grep -m1 '^FROM ' Containerfile
+          if git diff --quiet Containerfile; then echo "Base image unchanged"; else echo "changed=$digest" >> "$GITHUB_OUTPUT"; fi
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
@@ -52,3 +72,14 @@ jobs:
           tags: ghcr.io/cqmp/centos9-workstation:${{ github.ref_name == 'main' && 'latest' || 'testing' }}
           cache-from: type=registry,ref=ghcr.io/cqmp/centos9-workstation:cache
           cache-to: type=registry,ref=ghcr.io/cqmp/centos9-workstation:cache,mode=max
+
+      - name: Commit the new base digest
+        if: steps.base.outputs.changed != ''
+        env:
+          DIGEST: ${{ steps.base.outputs.changed }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m "Base image digest ${DIGEST:7:12} ($(date -u +%F), weekly update)" Containerfile
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"

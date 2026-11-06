@@ -1,0 +1,33 @@
+#!/bin/bash
+# Weekly image update with automatic rollback (bootc-update.service, Sunday 04:00 UTC).
+#
+# Stages the newest image and reboots into it with a GRUB boot counter (ift_boot_counter=3,
+# see /usr/lib/ift/grub-user.cfg): if the new image fails to boot three times, GRUB starts
+# the previous one. ift-boot-check.service checks the new image after boot and rolls back
+# if it does not work. An image that failed is not installed again.
+set -uo pipefail
+STATE=/var/lib/ift-update
+GRUBENV=/boot/grub2/grubenv
+mkdir -p "$STATE"
+
+check=$(bootc upgrade --check 2>&1) || { echo "$check"; echo "Update check failed"; exit 1; }
+remote=$(sed -n 's/^ *Digest: *//p' <<<"$check" | head -1)
+if [[ -z $remote ]]; then
+    echo "No update available"
+    exit 0
+fi
+if [[ -f $STATE/failed ]] && grep -qxF "$remote" "$STATE/failed"; then
+    echo "Image $remote failed its boot check on this machine before; not installing it again"
+    exit 0
+fi
+
+bootc upgrade || { echo "bootc upgrade failed"; exit 1; }
+staged=$(bootc status --format json | jq -r '.status.staged.image.imageDigest // empty')
+if [[ -z $staged ]]; then
+    echo "Nothing was staged"
+    exit 0
+fi
+echo "$staged" >"$STATE/pending"
+grub2-editenv "$GRUBENV" set ift_boot_counter=3 || { echo "Cannot set the boot counter; not rebooting"; exit 1; }
+echo "Rebooting into $staged"
+systemctl reboot

@@ -1,0 +1,13 @@
+[Unit]
+Description=Check a freshly updated image and roll back if it does not work (see ift-update)
+Wants=network-online.target
+After=network-online.target graphical.target gdm.service sssd.service condor.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/libexec/ift-boot-check
+TimeoutStartSec=30min
+
+[Install]
+WantedBy=graphical.target
