@@ -616,6 +616,9 @@ COPY usr/lib/sysusers.d/gh-runner.conf /usr/lib/sysusers.d/gh-runner.conf
 COPY etc/gh-runner/runner.conf /etc/gh-runner/runner.conf
 COPY etc/NetworkManager/conf.d/gh-runner.conf /etc/NetworkManager/conf.d/gh-runner.conf
 
+# Intel I219 (e1000e) transmit hangs under load: TSO/GSO off (see the rule)
+COPY usr/lib/udev/rules.d/80-e1000e-no-tso.rules /usr/lib/udev/rules.d/80-e1000e-no-tso.rules
+
 # vncserver@.service ships ordered only After=network.target, so it starts
 # seconds after boot -- before autofs/sssd bring up NFS home directories.
 # vncsession then can't set up $HOME and Xvnc exits (status 71). Drop-in
