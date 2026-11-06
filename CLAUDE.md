@@ -80,12 +80,12 @@ Central manager: `condor.gull-group.org`. Each workstation runs `MASTER`, `START
 
 ## GitHub Actions runners
 
-`gh-runner-vm.service` offers each workstation to GitHub (org `ALPSim`, labels `self-hosted, ift-vm`) as a one-job runner inside a KVM VM, only while it is idle by the HTCondor rule (`LocalInteractiveIdle > 900`). Each VM is a copy-on-write disk on a base image in `/var/lib/gh-runner` (Ubuntu 24.04 cloud image with the actions runner and Docker, built on the host by booting the cloud image once and rebuilt weekly). It gets a single-use JIT registration from a GitHub App, runs one job, powers off, and its disk is deleted.
+`gh-runner-vm.service` offers each workstation to GitHub (orgs `ALPSim`, `CQMP` and `Green-Phys`, labels `self-hosted, ift-vm`) as a one-job runner inside a KVM VM, only while it is idle by the HTCondor rule (`LocalInteractiveIdle > 900`). Each VM is a copy-on-write disk on a base image in `/var/lib/gh-runner` (Ubuntu 24.04 cloud image with the actions runner and Docker, built on the host by booting the cloud image once and rebuilt weekly). It gets a single-use JIT registration in each org from a GitHub App (one runner process per org in the VM); the first job takes the VM and the other registrations are withdrawn. After the job the VM is stopped and its disk deleted.
 
 - **HTCondor:** while a job runs the script touches `/run/gh-runner/busy`. The `gh_runner` startd cron publishes it as `GitHubRunnerBusy`, so `START` is false and `PREEMPT` evicts (checkpoints) the HTCondor jobs; afterwards the machine takes jobs again. The machine stays in the pool (state Owner) instead of `condor_off`, so a crash cannot leave it switched off: the flag lives in the service's RuntimeDirectory.
 - **Local user returns:** an idle VM is stopped and deregistered; a running job finishes at `CPUWeight=20`, killed after `MAX_JOB_SECONDS`.
 - **Network:** NAT via tap `ghr0` (192.168.231.0/30, nftables table `inet gh_runner`). The guest cannot reach the host, private ranges (NFS, LDAP, workstations) or `EXTRA_BLOCK_NETS`; DNS is public. No shared folders, no GPU.
-- **Credentials:** a GitHub App with the org permission "Self-hosted runners: read & write". `APP_ID` goes in `etc/gh-runner/runner.conf`; the private key goes to `/etc/gh-runner/app.pem` (root 0600) on each host, never in the image (the image is public). The service is inert until the key exists.
+- **Credentials:** one GitHub App (owned by ALPSim, made public so it can be installed in the other orgs) with the org permission "Self-hosted runners: read & write". `APP_ID` and `ORGS` (org:runner group) go in `etc/gh-runner/runner.conf`; the private key goes to `/etc/gh-runner/app.pem` (root 0600) on each host, never in the image (the image is public). The service is inert until the key exists.
 - **Debugging:** `journalctl -u gh-runner-vm`; a failed image build leaves `/var/lib/gh-runner/build/console.log`.
 
 ## LDAP / Authentication

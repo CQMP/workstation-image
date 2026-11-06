@@ -2,9 +2,11 @@
 # Run throwaway GitHub Actions runner VMs, but only while this workstation is idle.
 #
 # Loop: wait until the local graphical session has been idle for IDLE_SECONDS (the same
-# rule as HTCondor's START), register a single-use (JIT) runner with GitHub, and boot a
-# copy-on-write VM from the base image with that registration. The guest runs exactly one
-# job and powers off; its disk is then deleted.
+# rule as HTCondor's START), register a single-use (JIT) runner with GitHub in each
+# organisation of ORGS, and boot a copy-on-write VM from the base image that runs all of
+# them. The first job to arrive takes the VM: the other registrations are withdrawn at
+# once. (Two jobs arriving within one poll both run, sharing the VM.) When the job is done
+# the VM is stopped and its disk deleted.
 #
 # HTCondor: while the runner is busy with a job, /run/gh-runner/busy exists. The startd
 # cron condor-gh-runner-state publishes it as GitHubRunnerBusy, which evicts (checkpoints)
@@ -24,10 +26,12 @@
 set -uo pipefail
 
 # Defaults; /etc/gh-runner/runner.conf overrides them.
+# ORGS: "org:runner_group_id ..."; the GitHub App must be installed in each organisation.
+ORGS=
 ORG=ALPSim
+RUNNER_GROUP_ID=1
 APP_ID=
 APP_KEY=/etc/gh-runner/app.pem
-RUNNER_GROUP_ID=1
 RUNNER_LABELS=self-hosted,linux,x64,ift-vm
 VCPUS=8
 MEMORY_MB=12288
@@ -53,12 +57,13 @@ BLOCK_NETS="10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.
 API=https://api.github.com
 POLL_SECONDS=30
 
+[[ -n $ORGS ]] || ORGS="$ORG:$RUNNER_GROUP_ID"
+
 VM_PID=
-RUNNER_ID=
-RUNNER_STATE=
-JIT_CONFIG=
-TOKEN=
-TOKEN_EXPIRES=0
+declare -A RUNNER_IDS=()     # org -> runner id of the current VM's registration
+declare -A JIT_CONFIGS=()    # org -> encoded JIT config
+declare -A STATES=()         # org -> busy, online, offline, gone or unknown
+declare -A TOKENS=() TOKEN_EXPIRES=()
 status=
 body=
 
@@ -111,57 +116,104 @@ api_as() {
     [[ $status == 2?? ]]
 }
 
+# refresh_token ORG: an installation token for ORG, cached for 50 minutes
 refresh_token() {
-    (( $(date +%s) < TOKEN_EXPIRES )) && return 0
-    local jwt installation
+    local org=$1 jwt installation
+    (( $(date +%s) < ${TOKEN_EXPIRES[$org]:-0} )) && return 0
     jwt=$(app_jwt) || { log "Cannot sign the GitHub App JWT with $APP_KEY"; return 1; }
-    api_as "$jwt" GET "/orgs/$ORG/installation" \
-        || { log "GitHub App installation lookup failed ($status): $body"; return 1; }
+    api_as "$jwt" GET "/orgs/$org/installation" \
+        || { log "GitHub App installation lookup in $org failed ($status): $body"; return 1; }
     installation=$(jq -r .id <<<"$body")
     api_as "$jwt" POST "/app/installations/$installation/access_tokens" \
-        || { log "GitHub App token request failed ($status): $body"; return 1; }
-    TOKEN=$(jq -r .token <<<"$body")
-    TOKEN_EXPIRES=$(( $(date +%s) + 3000 ))   # tokens live 1 h
+        || { log "GitHub App token request for $org failed ($status): $body"; return 1; }
+    TOKENS[$org]=$(jq -r .token <<<"$body")
+    TOKEN_EXPIRES[$org]=$(( $(date +%s) + 3000 ))   # tokens live 1 h
 }
 
+# api ORG METHOD PATH [JSON]
 api() {
-    refresh_token || { status=000; body=; return 1; }
-    api_as "$TOKEN" "$@"
+    local org=$1
+    shift
+    refresh_token "$org" || { status=000; body=; return 1; }
+    api_as "${TOKENS[$org]}" "$@"
 }
 
+# register_runner ORG GROUP_ID
 register_runner() {
-    local name request
+    local org=$1 group=$2 name request
     name="ift-$(hostname -s)-$(date +%Y%m%d-%H%M%S)"
-    request=$(jq -nc --arg name "$name" --argjson group "$RUNNER_GROUP_ID" --arg labels "$RUNNER_LABELS" \
+    request=$(jq -nc --arg name "$name" --argjson group "$group" --arg labels "$RUNNER_LABELS" \
         '{name: $name, runner_group_id: $group, labels: ($labels | split(",")), work_folder: "_work"}')
-    api POST "/orgs/$ORG/actions/runners/generate-jitconfig" "$request" \
-        || { log "Runner registration failed ($status): $body"; return 1; }
-    RUNNER_ID=$(jq -r .runner.id <<<"$body")
-    JIT_CONFIG=$(jq -r .encoded_jit_config <<<"$body")
-    RUNNER_STATE=offline
-    log "Registered runner $name (id $RUNNER_ID)"
+    api "$org" POST "/orgs/$org/actions/runners/generate-jitconfig" "$request" \
+        || { log "Runner registration in $org failed ($status): $body"; return 1; }
+    RUNNER_IDS[$org]=$(jq -r .runner.id <<<"$body")
+    JIT_CONFIGS[$org]=$(jq -r .encoded_jit_config <<<"$body")
+    STATES[$org]=offline
+    log "Registered runner $name in $org (id ${RUNNER_IDS[$org]})"
 }
 
-# Sets RUNNER_STATE to busy, online, offline, gone (deleted, e.g. after its job) or unknown.
+# runner_state ORG: sets STATES[ORG] to busy, online, offline, gone (deleted, e.g. after
+# its job) or unknown
 runner_state() {
-    if ! api GET "/orgs/$ORG/actions/runners/$RUNNER_ID"; then
-        if [[ $status == 404 ]]; then RUNNER_STATE=gone; else RUNNER_STATE=unknown; fi
+    local org=$1
+    if ! api "$org" GET "/orgs/$org/actions/runners/${RUNNER_IDS[$org]}"; then
+        if [[ $status == 404 ]]; then STATES[$org]=gone; else STATES[$org]=unknown; fi
         return
     fi
     if [[ $(jq -r .busy <<<"$body") == true ]]; then
-        RUNNER_STATE=busy
+        STATES[$org]=busy
     else
-        RUNNER_STATE=$(jq -r .status <<<"$body")
+        STATES[$org]=$(jq -r .status <<<"$body")
     fi
 }
 
+poll_states() {
+    local org
+    for org in "${!RUNNER_IDS[@]}"; do
+        [[ ${STATES[$org]} == gone ]] || runner_state "$org"
+    done
+}
+
+# any_state STATE...: true if a registration is in one of these states
+any_state() {
+    local org s
+    for org in "${!RUNNER_IDS[@]}"; do
+        for s in "$@"; do [[ ${STATES[$org]} == "$s" ]] && return 0; done
+    done
+    return 1
+}
+
+# deregister_runner ORG: fails if GitHub refuses because the runner has meanwhile taken a job
 deregister_runner() {
-    [[ -n $RUNNER_ID ]] || return 0
+    local org=$1
+    [[ -n ${RUNNER_IDS[$org]-} ]] || return 0
     # JIT runners delete themselves after their job; 404 is the normal case then.
-    api DELETE "/orgs/$ORG/actions/runners/$RUNNER_ID" || [[ $status == 404 ]] \
-        || log "Could not delete runner $RUNNER_ID ($status): $body"
-    RUNNER_ID=
-    JIT_CONFIG=
+    if api "$org" DELETE "/orgs/$org/actions/runners/${RUNNER_IDS[$org]}" || [[ $status == 404 ]]; then
+        STATES[$org]=gone
+        return 0
+    fi
+    log "Could not delete runner ${RUNNER_IDS[$org]} in $org ($status): $body"
+    return 1
+}
+
+deregister_all() {
+    local org
+    for org in "${!RUNNER_IDS[@]}"; do deregister_runner "$org"; done
+    RUNNER_IDS=()
+    JIT_CONFIGS=()
+    STATES=()
+}
+
+# The VM took a job: withdraw the registrations in the other organisations. One that took
+# a job meanwhile (GitHub refuses) or could not be reached is retried after the next poll.
+withdraw_idle() {
+    local org
+    for org in "${!RUNNER_IDS[@]}"; do
+        case ${STATES[$org]} in
+            busy|gone) ;;
+            *) deregister_runner "$org" ;;
+        esac
+    done
 }
 
 # ── Guest network: NAT to the internet only ─────────────────────────────────────────
@@ -273,19 +325,6 @@ users:
     lock_passwd: true
     sudo: "ALL=(ALL) NOPASSWD:ALL"
 write_files:
-  - path: /etc/systemd/system/gh-runner.service
-    content: |
-      [Unit]
-      Description=GitHub Actions runner (one job, then power off)
-      Wants=network-online.target docker.service
-      After=network-online.target docker.service
-      ConditionPathExists=/etc/gh-runner/jitconfig
-
-      [Service]
-      User=runner
-      WorkingDirectory=/home/runner/actions-runner
-      ExecStart=/bin/bash -c 'exec ./run.sh --jitconfig "$(cat /etc/gh-runner/jitconfig)"'
-      ExecStopPost=+/usr/bin/systemctl poweroff --no-block
   - path: /usr/local/sbin/install-gh-runner
     permissions: "0755"
     content: |
@@ -299,7 +338,6 @@ write_files:
         | tar -xz -C /home/runner/actions-runner
       chown -R runner:runner /home/runner/actions-runner
       /home/runner/actions-runner/bin/installdependencies.sh
-      systemctl daemon-reload
       apt-get clean
       cloud-init clean --logs --machine-id
       echo "GH-RUNNER-IMAGE-$((6 * 7))-OK" >/dev/ttyS0
@@ -311,16 +349,37 @@ power_state:
 EOF
 }
 
+# One runner per registration, each in its own copy of the runner directory. The guest
+# powers off when all have exited; the host stops it anyway once the job is done.
 job_user_data() {
-    cat <<EOF
+    local org
+    cat <<'EOF'
 #cloud-config
 write_files:
-  - path: /etc/gh-runner/jitconfig
+  - path: /usr/local/sbin/start-gh-runners
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      cd /home/runner || exit 1
+      for f in /etc/gh-runner/jit/*; do
+        dir=/home/runner/runner-${f##*/}
+        cp -a actions-runner "$dir"
+        runuser -u runner -- bash -c 'cd "$1" && exec ./run.sh --jitconfig "$(cat "$2")"' _ "$dir" "$f" &
+      done
+      wait
+      systemctl poweroff
+EOF
+    for org in "${!JIT_CONFIGS[@]}"; do
+        cat <<EOF
+  - path: /etc/gh-runner/jit/$org
     owner: runner:runner
     permissions: "0400"
-    content: $JIT_CONFIG
+    content: ${JIT_CONFIGS[$org]}
+EOF
+    done
+    cat <<'EOF'
 runcmd:
-  - [systemctl, start, --no-block, gh-runner.service]
+  - [systemd-run, --unit=gh-runners, --property=Wants=docker.service, --property=After=docker.service, /usr/local/sbin/start-gh-runners]
 EOF
 }
 
@@ -363,15 +422,19 @@ build_image() {
     log "Base image ready"
 }
 
-# One VM: offered to GitHub while the workstation stays idle, runs at most one job.
+# One VM: offered to GitHub in every organisation while the workstation stays idle, runs
+# the first job that arrives.
 run_one_vm() {
-    local dir=$STATE_DIR/run started now last_poll=0 busy=false
-    register_runner || return 1
+    local dir=$STATE_DIR/run started now last_poll=0 busy=false entry
+    for entry in $ORGS; do
+        register_runner "${entry%%:*}" "${entry##*:}"
+    done
+    (( ${#RUNNER_IDS[@]} )) || return 1
     rm -rf "$dir"
     install -d -o "$VM_USER" -g "$VM_USER" -m 0700 "$dir"
     qemu-img create -q -f qcow2 -F qcow2 -b "$BASE" "$dir/disk.qcow2" \
-        && make_seed "$dir" "job-$RUNNER_ID" "$(job_user_data)" \
-        || { deregister_runner; return 1; }
+        && make_seed "$dir" "job-$(date +%s)" "$(job_user_data)" \
+        || { deregister_all; return 1; }
     chown -R "$VM_USER:$VM_USER" "$dir"
 
     started=$(date +%s)
@@ -381,16 +444,21 @@ run_one_vm() {
         now=$(date +%s)
         if (( now - last_poll >= POLL_SECONDS )); then
             last_poll=$now
-            runner_state
-        fi
-
-        if ! $busy && [[ $RUNNER_STATE == busy ]]; then
-            busy=true
-            : >"$BUSY_FLAG"
-            log "Runner took a job; HTCondor jobs are being evicted"
+            poll_states
+            if ! $busy && any_state busy; then
+                busy=true
+                : >"$BUSY_FLAG"
+                log "Runner took a job; HTCondor jobs are being evicted"
+            fi
+            $busy && withdraw_idle
         fi
 
         if $busy; then
+            # JIT runners are deleted by GitHub when their job is done.
+            if ! any_state busy online offline unknown; then
+                log "Job done; stopping the VM"
+                break
+            fi
             if (( now - started > MAX_JOB_SECONDS )); then
                 log "Job ran longer than ${MAX_JOB_SECONDS}s; stopping the VM"
                 break
@@ -398,14 +466,12 @@ run_one_vm() {
         elif ! is_idle; then
             # A job may have been assigned since the last poll; check before pulling the plug.
             last_poll=$now
-            runner_state
-            case $RUNNER_STATE in
-                busy|unknown) continue ;;
-            esac
-            log "Local user is back; withdrawing the idle runner"
+            poll_states
+            any_state busy unknown && continue
+            log "Local user is back; withdrawing the idle runners"
             break
-        elif [[ $RUNNER_STATE == offline ]] && (( now - started > 600 )); then
-            log "Runner did not come online within 10 minutes; restarting the VM"
+        elif ! any_state online && (( now - started > 600 )); then
+            log "Runners did not come online within 10 minutes; restarting the VM"
             break
         elif (( now - started > 86400 )); then
             # Lets the outer loop rebuild a stale base image even when no jobs come in.
@@ -417,14 +483,14 @@ run_one_vm() {
     stop_vm
     rm -f "$BUSY_FLAG"
     $busy && log "Job finished; HTCondor jobs may start again"
-    deregister_runner
+    deregister_all
     rm -rf "$dir"
 }
 
 cleanup() {
     stop_vm
     rm -f "$BUSY_FLAG"
-    deregister_runner
+    deregister_all
 }
 
 main() {
