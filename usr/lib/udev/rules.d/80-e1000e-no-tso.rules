@@ -1,0 +1,5 @@
+# The Intel I219 (e1000e) on these workstations stalls under sustained transmit load with
+# TCP segmentation offload on ("Detected Hardware Unit Hang" every 2 s, no network until a
+# reboot; Bethe and Matsubara, Nov 2026, during CI builds in the runner VMs). Segment in
+# software instead: negligible CPU at 1 Gbit/s.
+ACTION=="add", SUBSYSTEM=="net", DRIVERS=="e1000e", RUN+="/usr/sbin/ethtool -K $name tso off gso off"
