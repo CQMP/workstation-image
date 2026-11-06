@@ -1,0 +1,8 @@
+#!/bin/bash
+# Publish whether the GitHub Actions runner VM is running a job (gh-runner-vm creates the
+# flag). Consumed by HTCondor's startd cron; 00-ift-execute.conf evicts jobs while it is true.
+if [[ -e /run/gh-runner/busy ]]; then
+    echo 'GitHubRunnerBusy = true'
+else
+    echo 'GitHubRunnerBusy = false'
+fi

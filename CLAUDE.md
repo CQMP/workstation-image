@@ -27,6 +27,7 @@ Key config locations and what they do:
 | `etc/systemd/system/scratch.mount` | Mounts local NVMe scratch partition (label `data`) at `/scratch` |
 | `etc/systemd/system/scratch-homedirs.service` | Creates `/scratch/<user>/` dirs for each allowed user on boot |
 | `etc/systemd/system/cups-printers.service` | Registers shared network printers (e.g. Sharp MX-C358F) with CUPS on boot, driverlessly via IPP Everywhere |
+| `etc/systemd/system/gh-runner-vm.service`, `usr/local/libexec/gh-runner-vm` | Throwaway GitHub Actions runner VMs while the workstation is idle (see below); settings in `etc/gh-runner/runner.conf` |
 | `etc/auto.master` | autofs mounts for `/dmj`, `/expo`, `/repo` and peer workstation scratch disks |
 | `etc/idmapd.conf` | NFSv4 ID mapping domain `fuw.edu.pl` (the department NAS sends owners as `user@fuw.edu.pl`; without it the homes show `nobody`) |
 | `etc/auto.shared_scratch` | autofs map for `/shared_scratch/<host>` NFS mounts of workstation `/scratch` disks |
@@ -71,11 +72,21 @@ To add a user: add their Unix username to `simple_allow_users` in `etc/sssd/sssd
 
 The NVIDIA kernel module (open variant, `kmod-nvidia-open-dkms`; the proprietary `kmod-nvidia-latest-dkms` was discontinued at driver 615) is built in-image with DKMS (`dkms build/install`) during the container build. Secure Boot must be **disabled** on the hardware (the module is unsigned). The `omit-nvidia-initramfs.conf` dracut config ensures nvidia modules are excluded from the initramfs (loaded from the live root instead), which keeps the initramfs small enough for EFI allocation.
 
-CUDA is installed as components (`cuda-compiler`, `cuda-libraries{,-devel}`, `cuda-command-line-tools`, `cuda-nvml-devel`, versioned like `-13-4` after the latest `cuda-toolkit`), not the `cuda-toolkit` meta-package: that adds ~2.5 GB of Nsight Systems/Compute GUIs. The image is ~14 GB compressed (~40 GB on disk). Machines installed with the old 50 GB root partition cannot stage upgrades with large layer changes (`Insufficient free space` / `min-free-space-percent '3%' would be exceeded`); `ks.cfg` now uses 200 GiB, and Kadanoff was converted in place (Oct 2026). Keep the image lean, and put small additions in late layers so they don't rebuild the big ones. `etc/profile.d/cuda.sh` puts `/usr/local/cuda/bin` on the PATH.
+CUDA is installed as components (`cuda-compiler`, `cuda-libraries{,-devel}`, `cuda-command-line-tools`, `cuda-nvml-devel`, versioned like `-13-4` after the latest `cuda-toolkit`), not the `cuda-toolkit` meta-package: that adds ~2.5 GB of Nsight Systems/Compute GUIs. The image is ~14 GB compressed (~40 GB on disk). Machines installed with the old 50 GB root partition cannot stage upgrades with large layer changes (`Insufficient free space` / `min-free-space-percent '3%' would be exceeded`); `ks.cfg` now uses 200 GiB, and all machines installed earlier were converted in place (Bethe last, Nov 2026: `p3` keeps its start and GUID and ends at sector 422578175, the empty `p4` is recreated with label `data`, `xfs_growfs /var` because `/sysroot` is mounted read-only). Keep the image lean, and put small additions in late layers so they don't rebuild the big ones. `etc/profile.d/cuda.sh` puts `/usr/local/cuda/bin` on the PATH.
 
 ## HTCondor
 
 Central manager: `condor.gull-group.org`. Each workstation runs `MASTER`, `STARTD`, and `SCHEDD`. A startd cron monitor publishes local graphical-session idle time from systemd-logind because HTCondor's `KeyboardIdle` fallback does not see GNOME input without `condor_kbdd`. Jobs start only when `LocalInteractiveIdle > 900s` and `LoadAvg < 0.5`; remote SSH sessions do not inhibit jobs. CRIU checkpointing is enabled with `cuda-checkpoint` for GPU jobs; vacate time is 1 hour.
+
+## GitHub Actions runners
+
+`gh-runner-vm.service` offers each workstation to GitHub (org `ALPSim`, labels `self-hosted, ift-vm`) as a one-job runner inside a KVM VM, only while it is idle by the HTCondor rule (`LocalInteractiveIdle > 900`). Each VM is a copy-on-write disk on a base image in `/var/lib/gh-runner` (Ubuntu 24.04 cloud image with the actions runner and Docker, built on the host by booting the cloud image once and rebuilt weekly). It gets a single-use JIT registration from a GitHub App, runs one job, powers off, and its disk is deleted.
+
+- **HTCondor:** while a job runs the script touches `/run/gh-runner/busy`. The `gh_runner` startd cron publishes it as `GitHubRunnerBusy`, so `START` is false and `PREEMPT` evicts (checkpoints) the HTCondor jobs; afterwards the machine takes jobs again. The machine stays in the pool (state Owner) instead of `condor_off`, so a crash cannot leave it switched off: the flag lives in the service's RuntimeDirectory.
+- **Local user returns:** an idle VM is stopped and deregistered; a running job finishes at `CPUWeight=20`, killed after `MAX_JOB_SECONDS`.
+- **Network:** NAT via tap `ghr0` (192.168.231.0/30, nftables table `inet gh_runner`). The guest cannot reach the host, private ranges (NFS, LDAP, workstations) or `EXTRA_BLOCK_NETS`; DNS is public. No shared folders, no GPU.
+- **Credentials:** a GitHub App with the org permission "Self-hosted runners: read & write". `APP_ID` goes in `etc/gh-runner/runner.conf`; the private key goes to `/etc/gh-runner/app.pem` (root 0600) on each host, never in the image (the image is public). The service is inert until the key exists.
+- **Debugging:** `journalctl -u gh-runner-vm`; a failed image build leaves `/var/lib/gh-runner/build/console.log`.
 
 ## LDAP / Authentication
 

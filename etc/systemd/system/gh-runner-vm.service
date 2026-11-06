@@ -1,0 +1,24 @@
+[Unit]
+Description=Throwaway GitHub Actions runner VMs while the workstation is idle
+Documentation=file:///usr/local/libexec/gh-runner-vm
+Wants=network-online.target
+After=network-online.target condor.service
+# Inert until the GitHub App key has been installed (not part of the image).
+ConditionPathExists=/etc/gh-runner/app.pem
+
+[Service]
+ExecStart=/usr/local/libexec/gh-runner-vm
+# /run/gh-runner holds the busy flag; it disappears when the service stops,
+# so HTCondor never stays locked out after a crash.
+RuntimeDirectory=gh-runner
+RuntimeDirectoryMode=0755
+StateDirectory=gh-runner
+StateDirectoryMode=0755
+Restart=on-failure
+RestartSec=60
+# The VM (qemu runs in this cgroup) yields to the local user's session.
+CPUWeight=20
+IOWeight=20
+
+[Install]
+WantedBy=multi-user.target

@@ -518,8 +518,14 @@ RUN ln -sf /usr/lib/systemd/system/graphical.target /etc/systemd/system/default.
 # Small packages added after the big layers, so adding one here does not rebuild them
 # (and keeps the bootc upgrade download small on the 50 GB root partitions).
 #   - tmux: admin sessions that survive VPN drops
+#   - qemu-kvm-core, qemu-img, genisoimage, jq, nftables: GitHub Actions runner VMs (gh-runner-vm)
 RUN dnf install -y \
     tmux \
+    qemu-kvm-core \
+    qemu-img \
+    genisoimage \
+    jq \
+    nftables \
     && dnf clean all
 
 # Weekly package updates. The layers above come from the build cache and keep the package
@@ -542,6 +548,7 @@ RUN echo "package update ${UPDATE_STAMP}" \
 
 COPY etc/condor/config.d/00-ift-execute.conf /etc/condor/config.d/00-ift-execute.conf
 COPY --chmod=0755 usr/local/libexec/condor-logind-idle /usr/local/libexec/condor-logind-idle
+COPY --chmod=0755 usr/local/libexec/condor-gh-runner-state /usr/local/libexec/condor-gh-runner-state
 # No secrets in the image (it is public): the pool token is host-local in /etc/condor/tokens.d/ift-pool-token.
 RUN mkdir -p /etc/condor/tokens.d \
     && chown root:root /etc/condor/tokens.d \
@@ -597,6 +604,13 @@ COPY etc/systemd/system/bootc-update.service /etc/systemd/system/bootc-update.se
 COPY etc/systemd/system/bootc-update.timer /etc/systemd/system/bootc-update.timer
 COPY etc/systemd/system/cups-printers.service /etc/systemd/system/cups-printers.service
 
+# GitHub Actions runner VMs while the workstation is idle (inert until /etc/gh-runner/app.pem exists)
+COPY --chmod=0755 usr/local/libexec/gh-runner-vm /usr/local/libexec/gh-runner-vm
+COPY etc/systemd/system/gh-runner-vm.service /etc/systemd/system/gh-runner-vm.service
+COPY usr/lib/sysusers.d/gh-runner.conf /usr/lib/sysusers.d/gh-runner.conf
+COPY etc/gh-runner/runner.conf /etc/gh-runner/runner.conf
+COPY etc/NetworkManager/conf.d/gh-runner.conf /etc/NetworkManager/conf.d/gh-runner.conf
+
 # vncserver@.service ships ordered only After=network.target, so it starts
 # seconds after boot -- before autofs/sssd bring up NFS home directories.
 # vncsession then can't set up $HOME and Xvnc exits (status 71). Drop-in
@@ -608,6 +622,7 @@ RUN systemctl enable scratch.mount \
     && systemctl enable data.automount \
     && systemctl enable bootc-update.timer \
     && systemctl enable cups-printers.service \
+    && systemctl enable gh-runner-vm.service \
     && systemctl mask bootc-fetch-apply-updates.timer bootc-fetch-apply-updates.service kdump.service
 
 COPY etc/NetworkManager/conf.d/hostname.conf /etc/NetworkManager/conf.d/hostname.conf

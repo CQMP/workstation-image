@@ -1,0 +1,459 @@
+#!/bin/bash
+# Run throwaway GitHub Actions runner VMs, but only while this workstation is idle.
+#
+# Loop: wait until the local graphical session has been idle for IDLE_SECONDS (the same
+# rule as HTCondor's START), register a single-use (JIT) runner with GitHub, and boot a
+# copy-on-write VM from the base image with that registration. The guest runs exactly one
+# job and powers off; its disk is then deleted.
+#
+# HTCondor: while the runner is busy with a job, /run/gh-runner/busy exists. The startd
+# cron condor-gh-runner-state publishes it as GitHubRunnerBusy, which evicts (checkpoints)
+# the HTCondor jobs and keeps new ones from starting (00-ift-execute.conf). When the job
+# ends the flag is removed and the machine takes HTCondor jobs again.
+#
+# If the local user comes back before a job has been assigned, the VM is stopped and the
+# runner deregistered. A job that has already started finishes, at low CPU and IO
+# priority (gh-runner-vm.service), killed after MAX_JOB_SECONDS.
+#
+# The guest sits on a NATed tap device: it reaches the internet, but not this host, the
+# private/campus networks (NFS, LDAP, the other workstations) or EXTRA_BLOCK_NETS.
+#
+# The base image (Ubuntu cloud image + actions runner + Docker) is built here, by booting
+# the cloud image once with a provisioning cloud-init, and rebuilt every IMAGE_MAX_AGE_DAYS.
+
+set -uo pipefail
+
+# Defaults; /etc/gh-runner/runner.conf overrides them.
+ORG=ALPSim
+APP_ID=
+APP_KEY=/etc/gh-runner/app.pem
+RUNNER_GROUP_ID=1
+RUNNER_LABELS=self-hosted,linux,x64,ift-vm
+VCPUS=8
+MEMORY_MB=12288
+DISK_GB=60
+IDLE_SECONDS=900
+MAX_JOB_SECONDS=25200
+DNS_SERVERS="1.1.1.1, 9.9.9.9"
+EXTRA_BLOCK_NETS=
+IMAGE_MAX_AGE_DAYS=7
+UBUNTU_IMAGE_URL=https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img
+# shellcheck source=/dev/null
+[[ -r /etc/gh-runner/runner.conf ]] && . /etc/gh-runner/runner.conf
+
+STATE_DIR=/var/lib/gh-runner
+BASE=$STATE_DIR/base.qcow2
+BUSY_FLAG=/run/gh-runner/busy
+VM_USER=gh-runner
+QEMU=/usr/libexec/qemu-kvm
+TAP=ghr0
+HOST_IP=192.168.231.1
+GUEST_IP=192.168.231.2
+BLOCK_NETS="10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.0/16, 224.0.0.0/4"
+API=https://api.github.com
+POLL_SECONDS=30
+
+VM_PID=
+RUNNER_ID=
+RUNNER_STATE=
+JIT_CONFIG=
+TOKEN=
+TOKEN_EXPIRES=0
+status=
+body=
+
+log() { echo "$*" >&2; }
+
+# sleep that the TERM trap can interrupt
+pause() {
+    sleep "$1" &
+    wait $!
+}
+
+# ── Idle detection (same source as HTCondor's LocalInteractiveIdle) ─────────────────
+
+is_idle() {
+    local idle
+    idle=$(/usr/local/libexec/condor-logind-idle | sed -n 's/^LocalInteractiveIdle = //p')
+    [[ $idle =~ ^[0-9]+$ ]] && (( idle >= IDLE_SECONDS ))
+}
+
+wait_until_idle() {
+    until is_idle; do pause 30; done
+}
+
+# ── GitHub API (as a GitHub App with org "Self-hosted runners: read & write") ───────
+
+b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
+
+app_jwt() {
+    local now header payload sig
+    now=$(date +%s)
+    header=$(printf '{"alg":"RS256","typ":"JWT"}' | b64url)
+    payload=$(printf '{"iat":%d,"exp":%d,"iss":"%s"}' $((now - 60)) $((now + 540)) "$APP_ID" | b64url)
+    sig=$(printf '%s.%s' "$header" "$payload" | openssl dgst -sha256 -sign "$APP_KEY" -binary | b64url) \
+        || return 1
+    printf '%s.%s.%s' "$header" "$payload" "$sig"
+}
+
+# api_as AUTH METHOD PATH [JSON]: sets $status and $body; fails unless the status is 2xx
+api_as() {
+    local auth=$1 method=$2 path=$3 out
+    local data=()
+    [[ -n ${4-} ]] && data=(--data "$4")
+    out=$(curl -sS --max-time 30 -X "$method" -w '\n%{http_code}' \
+        -H "Authorization: Bearer $auth" \
+        -H 'Accept: application/vnd.github+json' \
+        -H 'X-GitHub-Api-Version: 2022-11-28' \
+        "${data[@]}" "$API$path") || { status=000; body=; return 1; }
+    status=${out##*$'\n'}
+    body=${out%$'\n'*}
+    [[ $status == 2?? ]]
+}
+
+refresh_token() {
+    (( $(date +%s) < TOKEN_EXPIRES )) && return 0
+    local jwt installation
+    jwt=$(app_jwt) || { log "Cannot sign the GitHub App JWT with $APP_KEY"; return 1; }
+    api_as "$jwt" GET "/orgs/$ORG/installation" \
+        || { log "GitHub App installation lookup failed ($status): $body"; return 1; }
+    installation=$(jq -r .id <<<"$body")
+    api_as "$jwt" POST "/app/installations/$installation/access_tokens" \
+        || { log "GitHub App token request failed ($status): $body"; return 1; }
+    TOKEN=$(jq -r .token <<<"$body")
+    TOKEN_EXPIRES=$(( $(date +%s) + 3000 ))   # tokens live 1 h
+}
+
+api() {
+    refresh_token || { status=000; body=; return 1; }
+    api_as "$TOKEN" "$@"
+}
+
+register_runner() {
+    local name request
+    name="ift-$(hostname -s)-$(date +%Y%m%d-%H%M%S)"
+    request=$(jq -nc --arg name "$name" --argjson group "$RUNNER_GROUP_ID" --arg labels "$RUNNER_LABELS" \
+        '{name: $name, runner_group_id: $group, labels: ($labels | split(",")), work_folder: "_work"}')
+    api POST "/orgs/$ORG/actions/runners/generate-jitconfig" "$request" \
+        || { log "Runner registration failed ($status): $body"; return 1; }
+    RUNNER_ID=$(jq -r .runner.id <<<"$body")
+    JIT_CONFIG=$(jq -r .encoded_jit_config <<<"$body")
+    RUNNER_STATE=offline
+    log "Registered runner $name (id $RUNNER_ID)"
+}
+
+# Sets RUNNER_STATE to busy, online, offline, gone (deleted, e.g. after its job) or unknown.
+runner_state() {
+    if ! api GET "/orgs/$ORG/actions/runners/$RUNNER_ID"; then
+        if [[ $status == 404 ]]; then RUNNER_STATE=gone; else RUNNER_STATE=unknown; fi
+        return
+    fi
+    if [[ $(jq -r .busy <<<"$body") == true ]]; then
+        RUNNER_STATE=busy
+    else
+        RUNNER_STATE=$(jq -r .status <<<"$body")
+    fi
+}
+
+deregister_runner() {
+    [[ -n $RUNNER_ID ]] || return 0
+    # JIT runners delete themselves after their job; 404 is the normal case then.
+    api DELETE "/orgs/$ORG/actions/runners/$RUNNER_ID" || [[ $status == 404 ]] \
+        || log "Could not delete runner $RUNNER_ID ($status): $body"
+    RUNNER_ID=
+    JIT_CONFIG=
+}
+
+# ── Guest network: NAT to the internet only ─────────────────────────────────────────
+
+setup_network() {
+    local blocked=$BLOCK_NETS${EXTRA_BLOCK_NETS:+, $EXTRA_BLOCK_NETS}
+    ip link show "$TAP" &>/dev/null || ip tuntap add dev "$TAP" mode tap user "$VM_USER" || return 1
+    sysctl -qw "net.ipv6.conf.$TAP.disable_ipv6=1"
+    ip addr replace "$HOST_IP/30" dev "$TAP" && ip link set "$TAP" up || return 1
+    nft -f - <<EOF || return 1
+table inet gh_runner
+delete table inet gh_runner
+table inet gh_runner {
+    set blocked {
+        type ipv4_addr
+        flags interval
+        elements = { $blocked }
+    }
+    chain input {
+        type filter hook input priority filter; policy accept;
+        iifname "$TAP" drop
+    }
+    chain forward {
+        type filter hook forward priority filter; policy accept;
+        iifname "$TAP" ip saddr != $GUEST_IP drop
+        iifname "$TAP" ip daddr @blocked drop
+        iifname "$TAP" meta nfproto ipv4 accept
+        iifname "$TAP" drop
+        oifname "$TAP" ct state established,related accept
+        oifname "$TAP" drop
+    }
+    chain postrouting {
+        type nat hook postrouting priority srcnat; policy accept;
+        ip saddr $GUEST_IP oifname != "$TAP" masquerade
+    }
+}
+EOF
+    sysctl -qw net.ipv4.ip_forward=1
+}
+
+# ── VMs ─────────────────────────────────────────────────────────────────────────────
+
+# make_seed DIR INSTANCE_ID USER_DATA: cloud-init NoCloud seed at DIR/seed.iso
+make_seed() {
+    local dir=$1
+    printf 'instance-id: %s\nlocal-hostname: gh-%s\n' "$2" "$(hostname -s)" >"$dir/meta-data"
+    printf '%s\n' "$3" >"$dir/user-data"
+    cat >"$dir/network-config" <<EOF
+version: 2
+ethernets:
+  nic:
+    match:
+      driver: virtio_net
+    addresses: [$GUEST_IP/30]
+    routes:
+      - to: default
+        via: $HOST_IP
+    nameservers:
+      addresses: [$DNS_SERVERS]
+EOF
+    genisoimage -quiet -output "$dir/seed.iso" -volid cidata -joliet -rock \
+        "$dir/user-data" "$dir/meta-data" "$dir/network-config"
+}
+
+# start_vm DISK SEED SERIAL: boots in the background as the unprivileged VM user
+start_vm() {
+    setpriv --reuid="$VM_USER" --regid="$VM_USER" --init-groups -- \
+        "$QEMU" -name gh-runner -machine q35,accel=kvm -cpu host \
+        -smp "$VCPUS" -m "$MEMORY_MB" \
+        -nodefaults -display none -serial "$3" \
+        -drive "file=$1,if=virtio,format=qcow2,discard=unmap" \
+        -drive "file=$2,if=virtio,format=raw,readonly=on" \
+        -netdev "tap,id=net0,ifname=$TAP,script=no,downscript=no" \
+        -device virtio-net-pci,netdev=net0 \
+        -device virtio-rng-pci &
+    VM_PID=$!
+}
+
+stop_vm() {
+    [[ -n $VM_PID ]] || return 0
+    kill "$VM_PID" 2>/dev/null
+    wait "$VM_PID" 2>/dev/null
+    VM_PID=
+}
+
+provision_user_data() {
+    cat <<'EOF'
+#cloud-config
+package_update: true
+package_upgrade: true
+packages:
+  - docker.io
+  - docker-buildx
+  - git
+  - git-lfs
+  - curl
+  - jq
+  - zip
+  - unzip
+  - build-essential
+  - cmake
+  - ninja-build
+  - pkg-config
+  - python3-pip
+  - python3-venv
+users:
+  - name: runner
+    shell: /bin/bash
+    lock_passwd: true
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+write_files:
+  - path: /etc/systemd/system/gh-runner.service
+    content: |
+      [Unit]
+      Description=GitHub Actions runner (one job, then power off)
+      Wants=network-online.target docker.service
+      After=network-online.target docker.service
+      ConditionPathExists=/etc/gh-runner/jitconfig
+
+      [Service]
+      User=runner
+      WorkingDirectory=/home/runner/actions-runner
+      ExecStart=/bin/bash -c 'exec ./run.sh --jitconfig "$(cat /etc/gh-runner/jitconfig)"'
+      ExecStopPost=+/usr/bin/systemctl poweroff --no-block
+  - path: /usr/local/sbin/install-gh-runner
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      set -euxo pipefail
+      usermod -aG docker runner
+      url=$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/actions/runner/releases/latest)
+      version=${url##*/v}
+      install -d -o runner -g runner /home/runner/actions-runner
+      curl -fsSL "https://github.com/actions/runner/releases/download/v$version/actions-runner-linux-x64-$version.tar.gz" \
+        | tar -xz -C /home/runner/actions-runner
+      chown -R runner:runner /home/runner/actions-runner
+      /home/runner/actions-runner/bin/installdependencies.sh
+      systemctl daemon-reload
+      apt-get clean
+      cloud-init clean --logs --machine-id
+      echo "GH-RUNNER-IMAGE-$((6 * 7))-OK" >/dev/ttyS0
+runcmd:
+  - [/usr/local/sbin/install-gh-runner]
+power_state:
+  mode: poweroff
+  condition: true
+EOF
+}
+
+job_user_data() {
+    cat <<EOF
+#cloud-config
+write_files:
+  - path: /etc/gh-runner/jitconfig
+    owner: runner:runner
+    permissions: "0400"
+    content: $JIT_CONFIG
+runcmd:
+  - [systemctl, start, --no-block, gh-runner.service]
+EOF
+}
+
+build_image() {
+    local dir=$STATE_DIR/build name sum deadline
+    log "Building the runner base image from $UBUNTU_IMAGE_URL"
+    rm -rf "$dir"
+    install -d -o "$VM_USER" -g "$VM_USER" -m 0700 "$dir"
+    name=${UBUNTU_IMAGE_URL##*/}
+    curl -fsSL --retry 3 -o "$dir/cloud.img" "$UBUNTU_IMAGE_URL" \
+        && curl -fsSL --retry 3 -o "$dir/SHA256SUMS" "${UBUNTU_IMAGE_URL%/*}/SHA256SUMS" \
+        || { log "Cloud image download failed"; return 1; }
+    sum=$(awk -v f="*$name" '$2 == f { print $1 }' "$dir/SHA256SUMS")
+    [[ -n $sum ]] && echo "$sum  $dir/cloud.img" | sha256sum --quiet -c - \
+        || { log "Checksum mismatch for $name"; return 1; }
+    qemu-img convert -O qcow2 "$dir/cloud.img" "$dir/disk.qcow2" \
+        && qemu-img resize -q "$dir/disk.qcow2" "${DISK_GB}G" \
+        && make_seed "$dir" "image-$(date +%s)" "$(provision_user_data)" \
+        || return 1
+    rm -f "$dir/cloud.img"
+    chown -R "$VM_USER:$VM_USER" "$dir"
+
+    start_vm "$dir/disk.qcow2" "$dir/seed.iso" "file:$dir/console.log"
+    deadline=$(( $(date +%s) + 3600 ))
+    while kill -0 "$VM_PID" 2>/dev/null; do
+        (( $(date +%s) < deadline )) || { log "Image build timed out"; stop_vm; return 1; }
+        pause 10
+    done
+    wait "$VM_PID"
+    VM_PID=
+
+    # The marker is computed in the guest so that it never appears literally in the console log
+    grep -q 'GH-RUNNER-IMAGE-42-OK' "$dir/console.log" \
+        || { log "Image provisioning failed; see $dir/console.log"; return 1; }
+    qemu-img convert -O qcow2 "$dir/disk.qcow2" "$BASE.new" \
+        && chown "root:$VM_USER" "$BASE.new" && chmod 0640 "$BASE.new" \
+        && mv -f "$BASE.new" "$BASE" \
+        || return 1
+    rm -rf "$dir"
+    log "Base image ready"
+}
+
+# One VM: offered to GitHub while the workstation stays idle, runs at most one job.
+run_one_vm() {
+    local dir=$STATE_DIR/run started now last_poll=0 busy=false
+    register_runner || return 1
+    rm -rf "$dir"
+    install -d -o "$VM_USER" -g "$VM_USER" -m 0700 "$dir"
+    qemu-img create -q -f qcow2 -F qcow2 -b "$BASE" "$dir/disk.qcow2" \
+        && make_seed "$dir" "job-$RUNNER_ID" "$(job_user_data)" \
+        || { deregister_runner; return 1; }
+    chown -R "$VM_USER:$VM_USER" "$dir"
+
+    started=$(date +%s)
+    start_vm "$dir/disk.qcow2" "$dir/seed.iso" null
+    while kill -0 "$VM_PID" 2>/dev/null; do
+        pause 5
+        now=$(date +%s)
+        if (( now - last_poll >= POLL_SECONDS )); then
+            last_poll=$now
+            runner_state
+        fi
+
+        if ! $busy && [[ $RUNNER_STATE == busy ]]; then
+            busy=true
+            : >"$BUSY_FLAG"
+            log "Runner took a job; HTCondor jobs are being evicted"
+        fi
+
+        if $busy; then
+            if (( now - started > MAX_JOB_SECONDS )); then
+                log "Job ran longer than ${MAX_JOB_SECONDS}s; stopping the VM"
+                break
+            fi
+        elif ! is_idle; then
+            # A job may have been assigned since the last poll; check before pulling the plug.
+            last_poll=$now
+            runner_state
+            case $RUNNER_STATE in
+                busy|unknown) continue ;;
+            esac
+            log "Local user is back; withdrawing the idle runner"
+            break
+        elif [[ $RUNNER_STATE == offline ]] && (( now - started > 600 )); then
+            log "Runner did not come online within 10 minutes; restarting the VM"
+            break
+        elif (( now - started > 86400 )); then
+            # Lets the outer loop rebuild a stale base image even when no jobs come in.
+            log "Idle runner VM is a day old; replacing it"
+            break
+        fi
+    done
+
+    stop_vm
+    rm -f "$BUSY_FLAG"
+    $busy && log "Job finished; HTCondor jobs may start again"
+    deregister_runner
+    rm -rf "$dir"
+}
+
+cleanup() {
+    stop_vm
+    rm -f "$BUSY_FLAG"
+    deregister_runner
+}
+
+main() {
+    if [[ -z $APP_ID || ! -r $APP_KEY ]]; then
+        log "Not configured: set APP_ID in /etc/gh-runner/runner.conf and install $APP_KEY"
+        exit 0
+    fi
+    trap 'exit 0' TERM INT
+    trap cleanup EXIT
+    rm -f "$BUSY_FLAG"
+    setup_network || { log "Network setup failed"; exit 1; }
+
+    local started
+    while :; do
+        wait_until_idle
+        if [[ ! -s $BASE ]]; then
+            build_image || { log "Image build failed; retrying in an hour"; pause 3600; }
+            continue
+        fi
+        if [[ -n $(find "$BASE" -mtime +"$IMAGE_MAX_AGE_DAYS") ]]; then
+            # On failure keep the old image and try again in a day.
+            build_image || touch -d "$IMAGE_MAX_AGE_DAYS days ago" "$BASE"
+            continue
+        fi
+        started=$(date +%s)
+        run_one_vm || { pause 300; continue; }
+        # Do not hammer GitHub if VMs keep dying right away.
+        (( $(date +%s) - started > 120 )) || pause 300
+    done
+}
+
+main "$@"
