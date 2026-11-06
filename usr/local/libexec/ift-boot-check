@@ -1,0 +1,76 @@
+#!/bin/bash
+# Boot check after an image update (ift-boot-check.service); see ift-update.
+#
+# Every boot: keep /boot/grub2/user.cfg (GRUB boot counting) current.
+# After an update (ift_boot_counter set in grubenv):
+#   - GRUB fell back to the previous image (counter 0, or the booted image is not the new
+#     one): remove the failed deployment so that the working one stays the default.
+#   - Otherwise check the new image for up to CHECK_SECONDS. Pass: unset the counter.
+#     Fail: roll back to the previous image and reboot.
+# A failed image is recorded in /var/lib/ift-update/failed and not installed again.
+set -uo pipefail
+STATE=/var/lib/ift-update
+GRUBENV=/boot/grub2/grubenv
+CHECK_SECONDS=${CHECK_SECONDS:-600}
+mkdir -p "$STATE"
+
+if ! cmp -s /usr/lib/ift/grub-user.cfg /boot/grub2/user.cfg; then
+    if [[ -e /boot/grub2/user.cfg ]] && ! grep -q 'IFT boot counting' /boot/grub2/user.cfg; then
+        echo "WARNING: /boot/grub2/user.cfg exists and is not ours; boot counting is not installed"
+    else
+        install -m 0644 /usr/lib/ift/grub-user.cfg /boot/grub2/user.cfg && echo "Installed GRUB boot counting"
+    fi
+fi
+
+counter=$(grub2-editenv "$GRUBENV" list | sed -n 's/^ift_boot_counter=//p')
+[[ -n $counter ]] || exit 0
+
+pending=$(cat "$STATE/pending" 2>/dev/null)
+echo "First boot after an update to ${pending:-?} (GRUB boot attempts left: $counter)"
+booted=$(bootc status --format json | jq -r '.status.booted.image.imageDigest // empty')
+
+record_failure() {
+    [[ -n $pending ]] && echo "$pending" >>"$STATE/failed"
+    rm -f "$STATE/pending" "$STATE/simulate-failure"
+    grub2-editenv "$GRUBENV" unset ift_boot_counter
+}
+
+if [[ $counter == 0 || -z $pending || $booted != "$pending" ]]; then
+    echo "UPDATE FAILED: the new image ${pending:-?} did not boot; running the previous image $booted"
+    record_failure
+    # The failed deployment is still the default (index 0) while the previous one runs.
+    first_is_booted=$(ostree admin status | awk '/^[* ] /{print ($1=="*") ? "yes" : "no"; exit}')
+    [[ $first_is_booted == yes ]] || ostree admin undeploy 0
+    exit 0
+fi
+
+failures=()
+check() {
+    failures=()
+    if lspci -d 10de: 2>/dev/null | grep -qiE 'vga|3d'; then
+        nvidia-smi -L &>/dev/null || failures+=("nvidia-smi")
+    fi
+    systemctl is-active -q gdm || failures+=("gdm")
+    gw=$(ip -4 route show default | awk '{print $3; exit}')
+    [[ -n $gw ]] && ping -c1 -W2 "$gw" &>/dev/null || failures+=("network")
+    [[ ! -e /etc/sssd/conf.d/50-ldap-bind.conf ]] || systemctl is-active -q sssd || failures+=("sssd")
+    [[ ! -e /etc/condor/tokens.d/ift-pool-token ]] || systemctl is-active -q condor || failures+=("condor")
+    # For testing the rollback: touch /var/lib/ift-update/simulate-failure before an update.
+    [[ ! -e $STATE/simulate-failure ]] || failures+=("simulated")
+    (( ${#failures[@]} == 0 ))
+}
+
+deadline=$(( $(date +%s) + CHECK_SECONDS ))
+until check; do
+    if (( $(date +%s) >= deadline )); then
+        echo "UPDATE FAILED: image $booted fails its boot check (${failures[*]}); rolling back"
+        systemctl --failed --no-legend
+        record_failure
+        bootc rollback && systemctl reboot
+        exit 1
+    fi
+    sleep 30
+done
+grub2-editenv "$GRUBENV" unset ift_boot_counter
+rm -f "$STATE/pending"
+echo "Update OK: image $booted passed its boot check"

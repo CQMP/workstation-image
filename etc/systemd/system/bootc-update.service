@@ -1,6 +1,9 @@
 [Unit]
-Description=Weekly bootc image upgrade (reboots only if an update was staged)
+Description=Weekly image update with automatic rollback (reboots only if an update was staged)
+Wants=network-online.target
+After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/bootc upgrade --apply
+ExecStart=/usr/local/libexec/ift-update
+TimeoutStartSec=4h
