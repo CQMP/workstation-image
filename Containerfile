@@ -533,10 +533,12 @@ RUN dnf install -y \
 # date of the most recent Sunday), so each week's image carries only the updated packages on
 # top. The kernel and the NVIDIA driver stay out: the nvidia module is built by DKMS for the
 # image's one kernel above, and a newer kernel here would boot without it. They update when
-# the base digest or the NVIDIA/DKMS layers change.
+# the base digest or the NVIDIA/DKMS layers change. NVIDIA's repository is left out entirely: name patterns
+# miss packages such as xorg-x11-nvidia, whose update then needs the excluded driver libraries (Nov 2026).
 ARG UPDATE_STAMP=none
 RUN echo "package update ${UPDATE_STAMP}" \
     && dnf upgrade -y \
+        --disablerepo='cuda-rhel9-x86_64' \
         --exclude='kernel*' --exclude='kmod-nvidia*' --exclude='nvidia-*' \
         --exclude='libnvidia*' --exclude='cuda*' --exclude='dkms' \
     && test "$(rpm -q kernel | wc -l)" = 1 \

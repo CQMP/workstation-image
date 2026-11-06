@@ -40,7 +40,7 @@ Key config locations and what they do:
 
 ## Package updates
 
-The package layers come from the BuildKit cache and keep the versions they were built with, so a rebuild alone does not update anything. A late `dnf upgrade` layer reruns whenever its `UPDATE_STAMP` build arg changes (CI: once a week, with the Sunday build) and carries only the updated packages. It excludes the kernel, the NVIDIA driver and CUDA: the nvidia module is built by DKMS for the image's single kernel, so those update only with a base digest bump (see below) or a change to the NVIDIA/DKMS layers. That rebuilds nearly everything, so it is a full image download.
+The package layers come from the BuildKit cache and keep the versions they were built with, so a rebuild alone does not update anything. A late `dnf upgrade` layer reruns whenever its `UPDATE_STAMP` build arg changes (CI: once a week, with the Sunday build) and carries only the updated packages. It excludes the kernel and NVIDIA's whole repository (`--disablerepo=cuda-rhel9-x86_64`: driver, `xorg-x11-nvidia`, CUDA): the nvidia module is built by DKMS for the image's single kernel, so those update only with a base digest bump (see below) or a change to the NVIDIA/DKMS layers. That rebuilds nearly everything, so it is a full image download.
 
 ## Secrets
 
