@@ -20,7 +20,7 @@ Key config locations and what they do:
 |------|---------|
 | `Containerfile` | Full image definition — all packages, DKMS kernel module build, Boost 1.92 source build (`/usr/local`; Boost.MPI per MPI in `/usr/lib64/{openmpi,mpich}/lib`), systemd enables |
 | `ks.cfg` | Anaconda kickstart: partitions NVMe, pulls image from GHCR, triggers reboot |
-| `etc/sssd/sssd.conf` | LDAP auth via SSSD; bind password injected at build time via `--mount=type=secret` |
+| `etc/sssd/sssd.conf` | LDAP auth via SSSD; no password (host-local, see Secrets) |
 | `etc/condor/config.d/00-ift-execute.conf` | HTCondor execute-node policy; idle start, CRIU checkpointing |
 | `etc/systemd/system/bootc-update.{service,timer}` | `bootc upgrade --apply` every Sunday 04:00 UTC: reboots only if a new image was staged |
 | `etc/systemd/system/data.{mount,automount}` | Automounts `/data` via NFSv4.2 from `luttinger-storage` (`10.98.2.4:/data`) |
@@ -41,14 +41,23 @@ Key config locations and what they do:
 
 The package layers come from the BuildKit cache and keep the versions they were built with, so a rebuild alone does not update anything. A late `dnf upgrade` layer reruns whenever its `UPDATE_STAMP` build arg changes (CI: once a week, with the Sunday build) and carries only the updated packages. It excludes the kernel, the NVIDIA driver and CUDA: the nvidia module is built by DKMS for the image's single kernel, so those update only with a base digest bump (see below) or a change to the NVIDIA/DKMS layers. That rebuilds nearly everything, so it is a full image download.
 
-## Secrets (GitHub Actions)
+## Secrets
 
-Two secrets must be set in the repo's GitHub Actions settings:
+**No secrets in the image** (the GHCR package is public), as in `../cluster-image`. They are host-local files, placed by hand from the password manager; files in `/etc` that the image does not ship survive `bootc upgrade`. Until a file exists, its service stays off (`ConditionPathExists` drop-ins):
 
-- `LDAP_BIND_PASSWORD` — injected via `--mount=type=secret,id=ldap_password` into `sssd.conf`
-- `CONDOR_POOL_TOKEN` — injected via `--mount=type=secret,id=condor_token` into `/etc/condor/tokens.d/pool-token`
+- LDAP bind password: `/etc/sssd/conf.d/50-ldap-bind.conf`, `root:root 0600`, contents `[domain/fizyk]` / `ldap_default_authtok = <password>` (gates `sssd`)
+- HTCondor pool token: `/etc/condor/tokens.d/ift-pool-token`, directory `700 root:root`, file `600 root:root` (gates `condor`). Any deviation in permissions causes silent auth failure. The name differs from the old image-shipped `pool-token`, which upgrades delete.
 
-The condor token file permissions are strict: directory `700 root:root`, file `600 root:root`. Any deviation causes silent auth failure.
+Placing them on a host (from an admin's NFS home, which root cannot read under `root_squash`, hence the pipes):
+
+```bash
+cat ~/.move/condor_token | sudo install -m 0600 -o root -g root /dev/stdin /etc/condor/tokens.d/ift-pool-token
+{ printf '[domain/fizyk]\nldap_default_authtok = '; tr -d '\n' < ~/.move/ldap_token; echo; } \
+  | sudo install -m 0600 -o root -g root /dev/stdin /etc/sssd/conf.d/50-ldap-bind.conf
+sudo sssctl config-check
+```
+
+Before Nov 2026 both were baked into the public image from GitHub Actions secrets; the LDAP proxy password (shared with the Luttinger cluster) and the image's old pool token must be rotated.
 
 ## Adding packages or config
 

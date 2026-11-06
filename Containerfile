@@ -542,12 +542,11 @@ RUN echo "package update ${UPDATE_STAMP}" \
 
 COPY etc/condor/config.d/00-ift-execute.conf /etc/condor/config.d/00-ift-execute.conf
 COPY --chmod=0755 usr/local/libexec/condor-logind-idle /usr/local/libexec/condor-logind-idle
-RUN --mount=type=secret,id=condor_token \
-    mkdir -p /etc/condor/tokens.d \
-    && cp /run/secrets/condor_token /etc/condor/tokens.d/pool-token \
-    && chown root:root /etc/condor/tokens.d /etc/condor/tokens.d/pool-token \
-    && chmod 700 /etc/condor/tokens.d \
-    && chmod 600 /etc/condor/tokens.d/pool-token
+# No secrets in the image (it is public): the pool token is host-local in /etc/condor/tokens.d/ift-pool-token.
+RUN mkdir -p /etc/condor/tokens.d \
+    && chown root:root /etc/condor/tokens.d \
+    && chmod 700 /etc/condor/tokens.d
+COPY etc/systemd/system/condor.service.d/10-pool-token.conf /etc/systemd/system/condor.service.d/10-pool-token.conf
 
 # Kernel arguments (bootc reads these from /usr/lib/bootc/kargs.d/ at deployment time)
 COPY usr/lib/bootc/kargs.d/audit.toml /usr/lib/bootc/kargs.d/audit.toml
@@ -570,10 +569,14 @@ RUN chmod 440 /etc/sudoers.d/egull /etc/sudoers.d/host-admins \
     && visudo --check --file=/etc/sudoers
 
 
+# No secrets in the image (it is public): the LDAP bind password is host-local in /etc/sssd/conf.d/50-ldap-bind.conf.
 COPY etc/sssd/sssd.conf /etc/sssd/sssd.conf
-RUN --mount=type=secret,id=ldap_password \
-    sed -i "s/ldap_default_authtok = CHANGE_ME/ldap_default_authtok = $(cat /run/secrets/ldap_password)/" /etc/sssd/sssd.conf \
-    && chmod 600 /etc/sssd/sssd.conf
+COPY etc/systemd/system/sssd.service.d/10-ldap-bind.conf /etc/systemd/system/sssd.service.d/10-ldap-bind.conf
+RUN chmod 600 /etc/sssd/sssd.conf \
+    && ! grep -q '^ldap_default_authtok *=' /etc/sssd/sssd.conf \
+    && mkdir -p /etc/sssd/conf.d \
+    && chown root:sssd /etc/sssd/conf.d \
+    && chmod 750 /etc/sssd/conf.d
 
 RUN mkdir -p /etc/exports.d
 COPY etc/auto.master /etc/auto.master
