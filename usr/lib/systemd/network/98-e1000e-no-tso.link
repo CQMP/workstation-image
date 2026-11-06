@@ -1,0 +1,16 @@
+# Intel I219 (e1000e) stalls under sustained transmit load with TCP segmentation offload on
+# ("Detected Hardware Unit Hang" every 2 s, no network until a reboot; Bethe, Matsubara,
+# Hubbard, Tomonaga and Nozieres, Nov 2026, during CI builds in the runner VMs). Segment in
+# software instead: negligible CPU at 1 Gbit/s. A .link file applies this when udev names
+# the device (a udev RUN ethtool rule fires while it is still called eth0 and fails).
+# The first matching .link file wins, so the naming policy is that of 99-default.link.
+[Match]
+Driver=e1000e
+
+[Link]
+NamePolicy=keep kernel database onboard slot path
+AlternativeNamesPolicy=database onboard slot path
+MACAddressPolicy=none
+TCPSegmentationOffload=false
+TCP6SegmentationOffload=false
+GenericSegmentationOffload=false
