@@ -225,7 +225,10 @@ COPY etc/dracut.conf.d/ift-workstation-initramfs.conf /etc/dracut.conf.d/ift-wor
 
 # Build NVIDIA kernel module in-image using DKMS. Since driver 615 NVIDIA ships only the open
 # kernel module (kmod-nvidia-open-dkms); its DKMS module name is still "nvidia".
-RUN KVER=$(rpm -q kernel --queryformat '%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort -V | tail -1) \
+# dkms >= 3.4 runs post_transaction="dracut --regenerate-all --force" after install, which fails
+# in a container (clevis needs crypt); the initramfs is built explicitly below instead.
+RUN sed -i 's/^post_transaction=/#&/' /etc/dkms/framework.conf \
+    && KVER=$(rpm -q kernel --queryformat '%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort -V | tail -1) \
     && NVIDIA_VER=$(rpm -q kmod-nvidia-open-dkms --queryformat '%{VERSION}\n') \
     && dnf install -y kernel-devel-${KVER} \
     && dkms build nvidia/${NVIDIA_VER} -k ${KVER} \
