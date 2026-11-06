@@ -3,7 +3,7 @@
 # Update this digest periodically (monthly) to pick up base OS security patches:
 #   curl -fsSL "https://quay.io/api/v1/repository/centos-bootc/centos-bootc/tag/?specificTag=stream9&onlyActiveTags=true" \
 #     | python3 -c "import sys,json; print(json.load(sys.stdin)['tags'][0]['manifest_digest'])"
-FROM quay.io/centos-bootc/centos-bootc:stream9@sha256:32c6d2d51c99a3d20678f786a1fb388f04afcdfd97b7987dfc108673896f1596
+FROM quay.io/centos-bootc/centos-bootc:stream9@sha256:b4d1a0da5ceb6b9be546aae844b2d616161e19b449a520bedf878ae02e0c6757
 
 RUN dnf install -y \
     # Desktop
@@ -225,7 +225,10 @@ COPY etc/dracut.conf.d/ift-workstation-initramfs.conf /etc/dracut.conf.d/ift-wor
 
 # Build NVIDIA kernel module in-image using DKMS. Since driver 615 NVIDIA ships only the open
 # kernel module (kmod-nvidia-open-dkms); its DKMS module name is still "nvidia".
-RUN KVER=$(rpm -q kernel --queryformat '%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort -V | tail -1) \
+# dkms >= 3.4 runs post_transaction="dracut --regenerate-all --force" after install, which fails
+# in a container (clevis needs crypt); the initramfs is built explicitly below instead.
+RUN sed -i 's/^post_transaction=/#&/' /etc/dkms/framework.conf \
+    && KVER=$(rpm -q kernel --queryformat '%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort -V | tail -1) \
     && NVIDIA_VER=$(rpm -q kmod-nvidia-open-dkms --queryformat '%{VERSION}\n') \
     && dnf install -y kernel-devel-${KVER} \
     && dkms build nvidia/${NVIDIA_VER} -k ${KVER} \

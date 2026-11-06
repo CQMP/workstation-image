@@ -2,7 +2,7 @@ name: Build and push workstation image
 
 on:
   push:
-    branches: [main]
+    branches: [main, testing]  # testing pushes :testing, for trying a change on one machine (bootc switch)
   schedule:
     - cron: '17 0 * * 0'  # Sunday 00:17 UTC; GitHub delays scheduled runs by up to ~1.5h, must finish before the 04:00 UTC bootc-update.timer
 
@@ -49,6 +49,6 @@ jobs:
           context: .
           file: Containerfile
           push: true
-          tags: ghcr.io/cqmp/centos9-workstation:latest
+          tags: ghcr.io/cqmp/centos9-workstation:${{ github.ref_name == 'main' && 'latest' || 'testing' }}
           cache-from: type=registry,ref=ghcr.io/cqmp/centos9-workstation:cache
           cache-to: type=registry,ref=ghcr.io/cqmp/centos9-workstation:cache,mode=max
