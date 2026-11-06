@@ -26,6 +26,7 @@ counter=$(grub2-editenv "$GRUBENV" list | sed -n 's/^ift_boot_counter=//p')
 [[ -n $counter ]] || exit 0
 
 pending=$(cat "$STATE/pending" 2>/dev/null)
+echo "First boot after an update to ${pending:-?} (GRUB boot attempts left: $counter)"
 booted=$(bootc status --format json | jq -r '.status.booted.image.imageDigest // empty')
 
 record_failure() {

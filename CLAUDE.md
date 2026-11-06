@@ -50,6 +50,8 @@ On the machines (Sunday 04:00 UTC, `bootc-update.service` runs `ift-update`):
 3. `ift-boot-check.service` checks the new image for up to 10 minutes: `nvidia-smi`, `gdm`, a ping to the default gateway, `sssd` and `condor` (if their secrets exist). Pass: the counter is unset. Fail: `bootc rollback` and reboot. If GRUB had fallen back, it undeploys the failed image so the working one stays the default.
 4. The outcome is in `journalctl -u ift-boot-check` ("Update OK" or "UPDATE FAILED"). Failed images are listed in `/var/lib/ift-update/failed`; delete the file to allow a retry. To test the rollback: `sudo touch /var/lib/ift-update/simulate-failure` before an update.
 
+Tested on Hubbard, Nov 6 2026: a normal update (check passes, counter unset), a simulated check failure (`bootc rollback`, reboot into the previous image, image recorded as failed), a GRUB fallback (counter 0: GRUB booted the previous deployment, the failed one was undeployed), and the skip of a failed image. `bootc` compares with the image it last fetched, not the booted one: to reinstall a rejected image, `bootc switch` to its `@sha256:` digest.
+
 Not covered: a boot that ends in systemd's emergency mode after the initramfs (e.g. a broken fstab entry) waits at the console.
 
 ## Secrets
