@@ -76,7 +76,7 @@ CUDA is installed as components (`cuda-compiler`, `cuda-libraries{,-devel}`, `cu
 
 ## HTCondor
 
-Central manager: `condor.gull-group.org`. Each workstation runs `MASTER`, `STARTD`, and `SCHEDD`. A startd cron monitor publishes local graphical-session idle time from systemd-logind because HTCondor's `KeyboardIdle` fallback does not see GNOME input without `condor_kbdd`. Jobs start only when `LocalInteractiveIdle > 900s` and `LoadAvg < 0.5`; remote SSH sessions do not inhibit jobs. CRIU checkpointing is enabled with `cuda-checkpoint` for GPU jobs; vacate time is 1 hour.
+Central manager: `condor.gull-group.org`. Each workstation runs `MASTER`, `STARTD`, and `SCHEDD`. A startd cron monitor publishes local graphical-session idle time from systemd-logind because HTCondor's `KeyboardIdle` fallback does not see GNOME input without `condor_kbdd`. Jobs start only when `LocalInteractiveIdle > 900s` and `LoadAvg < 0.5`; remote SSH sessions do not inhibit jobs. CRIU checkpointing is enabled with `cuda-checkpoint` for GPU jobs; vacate time is 1 hour. `cuda-checkpoint` cannot checkpoint processes that use managed memory (`cudaMallocManaged`: "operation not supported", drivers 615 and 620 alike).
 
 ## GitHub Actions runners
 
@@ -87,6 +87,10 @@ Central manager: `condor.gull-group.org`. Each workstation runs `MASTER`, `START
 - **Network:** NAT via tap `ghr0` (192.168.231.0/30, nftables table `inet gh_runner`). The guest cannot reach the host, private ranges (NFS, LDAP, workstations) or `EXTRA_BLOCK_NETS`; DNS is public. No shared folders, no GPU.
 - **Credentials:** one GitHub App (owned by ALPSim, made public so it can be installed in the other orgs) with the org permission "Self-hosted runners: read & write". `APP_ID` and `ORGS` (org:runner group) go in `etc/gh-runner/runner.conf`; the private key goes to `/etc/gh-runner/app.pem` (root 0600) on each host, never in the image (the image is public). The service is inert until the key exists.
 - **Debugging:** `journalctl -u gh-runner-vm`; a failed image build leaves `/var/lib/gh-runner/build/console.log`.
+
+## Network card (Intel I219, e1000e)
+
+The onboard I219 stalls under sustained transmit load with TCP segmentation offload on: the kernel logs `e1000e ...: Detected Hardware Unit Hang` every 2 s and the machine has no network until a reboot (Nov 2026: Bethe, Matsubara, Hubbard, Tomonaga and Nozieres, within 10-25 minutes of CI builds in the runner VMs). `usr/lib/systemd/network/98-e1000e-no-tso.link` turns TSO/GSO off when udev names the device; it repeats the naming policy of `99-default.link` because the first matching `.link` file wins. (A udev `RUN+="ethtool -K $name ..."` rule does not work: it runs while the device is still `eth0`.) Check with `ethtool -k <if> | grep segmentation`. With TSO/GSO off, Bethe and Hubbard ran the full ALPS CI without a hang.
 
 ## LDAP / Authentication
 
@@ -118,6 +122,8 @@ The `FROM` line in `Containerfile` is pinned to a digest. Update monthly:
 curl -fsSL "https://quay.io/api/v1/repository/centos-bootc/centos-bootc/tag/?specificTag=stream9&onlyActiveTags=true" \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['tags'][0]['manifest_digest'])"
 ```
+
+Test record: base digest `b4d1a0da5ceb` (2026-11-05; kernel 5.14.0-761, NVIDIA 620.70.06, CUDA 13.5) on Hubbard, Nov 6 2026: boots, `nvidia-smi`, a CUDA program, `cuda-checkpoint` checkpoint/restore, GDM greeter, LDAP, HTCondor token auth, `/scratch`, `/data`, `/dmj`, TSO off and the runner in all three orgs OK. The base brought `clevis-dracut` (`50-bootc-clevis.conf`, omitted in `ift-workstation-initramfs.conf`) and dkms 3.4, whose `post_transaction` dracut run fails in the container (switched off in the DKMS layer).
 
 ## Open items (as of June 2026)
 
