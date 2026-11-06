@@ -616,8 +616,8 @@ COPY usr/lib/sysusers.d/gh-runner.conf /usr/lib/sysusers.d/gh-runner.conf
 COPY etc/gh-runner/runner.conf /etc/gh-runner/runner.conf
 COPY etc/NetworkManager/conf.d/gh-runner.conf /etc/NetworkManager/conf.d/gh-runner.conf
 
-# Intel I219 (e1000e) transmit hangs under load: TSO/GSO off (see the rule)
-COPY usr/lib/udev/rules.d/80-e1000e-no-tso.rules /usr/lib/udev/rules.d/80-e1000e-no-tso.rules
+# Intel I219 (e1000e) transmit hangs under load: TSO/GSO off when udev names the device
+COPY usr/lib/systemd/network/98-e1000e-no-tso.link /usr/lib/systemd/network/98-e1000e-no-tso.link
 
 # vncserver@.service ships ordered only After=network.target, so it starts
 # seconds after boot -- before autofs/sssd bring up NFS home directories.
