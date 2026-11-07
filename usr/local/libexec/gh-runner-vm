@@ -425,7 +425,7 @@ build_image() {
 # One VM: offered to GitHub in every organisation while the workstation stays idle, runs
 # the first job that arrives.
 run_one_vm() {
-    local dir=$STATE_DIR/run started now last_poll=0 busy=false entry
+    local dir=$STATE_DIR/run started job_started=0 now last_poll=0 busy=false entry
     for entry in $ORGS; do
         register_runner "${entry%%:*}" "${entry##*:}"
     done
@@ -447,6 +447,7 @@ run_one_vm() {
             poll_states
             if ! $busy && any_state busy; then
                 busy=true
+                job_started=$now
                 : >"$BUSY_FLAG"
                 log "Runner took a job; HTCondor jobs are being evicted"
             fi
@@ -459,7 +460,8 @@ run_one_vm() {
                 log "Job done; stopping the VM"
                 break
             fi
-            if (( now - started > MAX_JOB_SECONDS )); then
+            # From the job's start: the VM may have waited for it for many hours.
+            if (( now - job_started > MAX_JOB_SECONDS )); then
                 log "Job ran longer than ${MAX_JOB_SECONDS}s; stopping the VM"
                 break
             fi
