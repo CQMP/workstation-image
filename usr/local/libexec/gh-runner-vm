@@ -42,6 +42,12 @@ DNS_SERVERS="1.1.1.1, 9.9.9.9"
 EXTRA_BLOCK_NETS=
 IMAGE_MAX_AGE_DAYS=7
 UBUNTU_IMAGE_URL=https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img
+# Runner names are <NAME_PREFIX>-<host>-<time>; other sites set their own prefix.
+NAME_PREFIX=ift
+# Prints "LocalInteractiveIdle = <seconds>" (local graphical sessions, from logind).
+IDLE_CMD=/usr/local/libexec/condor-logind-idle
+# Empty: /usr/libexec/qemu-kvm (RHEL, Fedora) or qemu-system-x86_64 (Debian, Ubuntu).
+QEMU=
 # shellcheck source=/dev/null
 [[ -r /etc/gh-runner/runner.conf ]] && . /etc/gh-runner/runner.conf
 
@@ -49,7 +55,9 @@ STATE_DIR=/var/lib/gh-runner
 BASE=$STATE_DIR/base.qcow2
 BUSY_FLAG=/run/gh-runner/busy
 VM_USER=gh-runner
-QEMU=/usr/libexec/qemu-kvm
+if [[ -z $QEMU ]]; then
+    if [[ -x /usr/libexec/qemu-kvm ]]; then QEMU=/usr/libexec/qemu-kvm; else QEMU=$(command -v qemu-system-x86_64); fi
+fi
 TAP=ghr0
 HOST_IP=192.168.231.1
 GUEST_IP=192.168.231.2
@@ -79,7 +87,7 @@ pause() {
 
 is_idle() {
     local idle
-    idle=$(/usr/local/libexec/condor-logind-idle | sed -n 's/^LocalInteractiveIdle = //p')
+    idle=$("$IDLE_CMD" | sed -n 's/^LocalInteractiveIdle = //p')
     [[ $idle =~ ^[0-9]+$ ]] && (( idle >= IDLE_SECONDS ))
 }
 
@@ -141,7 +149,7 @@ api() {
 # register_runner ORG GROUP_ID
 register_runner() {
     local org=$1 group=$2 name request
-    name="ift-$(hostname -s)-$(date +%Y%m%d-%H%M%S)"
+    name="$NAME_PREFIX-$(hostname -s)-$(date +%Y%m%d-%H%M%S)"
     request=$(jq -nc --arg name "$name" --argjson group "$group" --arg labels "$RUNNER_LABELS" \
         '{name: $name, runner_group_id: $group, labels: ($labels | split(",")), work_folder: "_work"}')
     api "$org" POST "/orgs/$org/actions/runners/generate-jitconfig" "$request" \
@@ -500,6 +508,8 @@ main() {
         log "Not configured: set APP_ID in /etc/gh-runner/runner.conf and install $APP_KEY"
         exit 0
     fi
+    [[ -n $QEMU && -x $QEMU ]] || { log "QEMU not found (qemu-kvm or qemu-system-x86_64; or set QEMU)"; exit 1; }
+    [[ -c /dev/kvm ]] || { log "/dev/kvm missing: enable virtualization (VT-x/AMD-V) in the firmware"; exit 1; }
     trap 'exit 0' TERM INT
     trap cleanup EXIT
     rm -f "$BUSY_FLAG"
