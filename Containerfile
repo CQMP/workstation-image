@@ -3,7 +3,7 @@
 # Update this digest periodically (monthly) to pick up base OS security patches:
 #   curl -fsSL "https://quay.io/api/v1/repository/centos-bootc/centos-bootc/tag/?specificTag=stream9&onlyActiveTags=true" \
 #     | python3 -c "import sys,json; print(json.load(sys.stdin)['tags'][0]['manifest_digest'])"
-FROM quay.io/centos-bootc/centos-bootc:stream9@sha256:b4d1a0da5ceb6b9be546aae844b2d616161e19b449a520bedf878ae02e0c6757
+FROM quay.io/centos-bootc/centos-bootc:stream9@sha256:530f09e41f46c01682734b705deb0950d0b27efdd9085e79a4ab48e8bb00adc1
 
 RUN dnf install -y \
     # Desktop
