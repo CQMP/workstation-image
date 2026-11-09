@@ -522,6 +522,7 @@ RUN ln -sf /usr/lib/systemd/system/graphical.target /etc/systemd/system/default.
 # (and keeps the bootc upgrade download small on the 50 GB root partitions).
 #   - tmux: admin sessions that survive VPN drops
 #   - qemu-kvm-core, qemu-img, genisoimage, jq, nftables: GitHub Actions runner VMs (gh-runner-vm)
+#   - flatpak: sandboxed desktop apps (users install with --user, see the Flathub COPY below)
 RUN dnf install -y \
     tmux \
     qemu-kvm-core \
@@ -529,6 +530,7 @@ RUN dnf install -y \
     genisoimage \
     jq \
     nftables \
+    flatpak \
     && dnf clean all
 
 # Weekly package updates. The layers above come from the build cache and keep the package
@@ -601,6 +603,10 @@ COPY etc/idmapd.conf /etc/idmapd.conf
 RUN chmod 644 /etc/idmapd.conf && test "$(nfsidmap -d)" = fuw.edu.pl
 RUN sed -i 's/^automount:.*/automount: files sss/' /etc/nsswitch.conf \
     || echo 'automount: files sss' >> /etc/nsswitch.conf
+
+# Flathub for the system Flatpak installation. Users (not admins: no system-wide installs) add it
+# to their own once: flatpak remote-add --user --if-not-exists flathub /etc/flatpak/remotes.d/flathub.flatpakrepo
+COPY etc/flatpak/remotes.d/flathub.flatpakrepo /etc/flatpak/remotes.d/flathub.flatpakrepo
 
 COPY etc/systemd/system/scratch.mount /etc/systemd/system/scratch.mount
 COPY etc/systemd/system/scratch-homedirs.service /etc/systemd/system/scratch-homedirs.service

@@ -34,6 +34,7 @@ Key config locations and what they do:
 | `etc/auto.shared_scratch` | autofs map for `/shared_scratch/<host>` NFS mounts of workstation `/scratch` disks |
 | `etc/exports.d/scratch.exports` | NFS export of local `/scratch` to the workstation subnet |
 | `usr/lib/bootc/kargs.d/nvidia.toml` | Kernel args: `nvidia-drm.modeset=1`, `modprobe.blacklist=nouveau` |
+| `etc/flatpak/remotes.d/flathub.flatpakrepo` | Flathub remote for the system Flatpak installation; users install apps with `--user` (into the NFS home) after adding it once: `flatpak remote-add --user --if-not-exists flathub /etc/flatpak/remotes.d/flathub.flatpakrepo` |
 | `etc/profile.d/cuda.sh` | Appends `/usr/local/cuda/bin` (nvcc, cuda-gdb) to the PATH |
 | `etc/dracut.conf.d/` | Initramfs tuning: nouveau blacklisted in initrd; modules stripped for small image |
 | `machines.md` | Machine inventory: names, MACs, IPs (10.42.1.40–50) |
