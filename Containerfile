@@ -503,6 +503,11 @@ RUN dnf install -y \
     python3.14-devel \
     && dnf clean all
 
+# flatpak - software packaging system
+# It seems it is not installed by default
+RUN dnf install -y \
+    flatpak
+
 # Intel i915 firmware ships as .xz in the linux-firmware RPM. CentOS 9's 5.14 kernel
 # may not have CONFIG_FW_LOADER_COMPRESS_XZ enabled, so create uncompressed copies.
 # Do not use `xz -d`: RPM firmware files have multiple hard links, which xz skips.
