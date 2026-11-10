@@ -2,22 +2,27 @@
 # Run throwaway GitHub Actions runner VMs, but only while this workstation is idle.
 #
 # Loop: wait until the local graphical session has been idle for IDLE_SECONDS (the same
-# rule as HTCondor's START), register a single-use (JIT) runner with GitHub in each
-# organisation of ORGS, and boot a copy-on-write VM from the base image that runs all of
-# them. The first job to arrive takes the VM: the other registrations are withdrawn at
-# once. (Two jobs arriving within one poll both run, sharing the VM.) When the job is done
-# the VM is stopped and its disk deleted.
+# rule as HTCondor's START), then, for each organisation of ORGS, register a single-use
+# (JIT) runner with GitHub and boot a copy-on-write VM from the base image that runs only
+# that runner. A VM never holds a registration of a second organisation, so jobs of
+# different organisations never share a VM. The idle VMs run side by side; when one takes a
+# job the other registrations are withdrawn and their VMs stopped. When the job is done
+# its VM is stopped and its disk deleted.
 #
-# HTCondor: while the runner is busy with a job, /run/gh-runner/busy exists. The startd
+# GitHub assigns jobs on its side, so a second job can arrive before the withdrawal (one
+# poll). It then runs in its own VM; the cost is CPU and memory for both, not isolation.
+#
+# HTCondor: while a runner is busy with a job, /run/gh-runner/busy exists. The startd
 # cron condor-gh-runner-state publishes it as GitHubRunnerBusy, which evicts (checkpoints)
 # the HTCondor jobs and keeps new ones from starting (00-ift-execute.conf). When the job
 # ends the flag is removed and the machine takes HTCondor jobs again.
 #
-# If the local user comes back before a job has been assigned, the VM is stopped and the
-# runner deregistered. A job that has already started finishes, at low CPU and IO
+# If the local user comes back before a job has been assigned, the VMs are stopped and the
+# runners deregistered. A job that has already started finishes, at low CPU and IO
 # priority (gh-runner-vm.service), killed after MAX_JOB_SECONDS.
 #
-# The guest sits on a NATed tap device: it reaches the internet, but not this host, the
+# Each guest sits on its own NATed tap device (ghr0, ghr1, ... with one /30 each in
+# 192.168.231.0/24): it reaches the internet, but not this host, the other guests, the
 # private/campus networks (NFS, LDAP, the other workstations) or EXTRA_BLOCK_NETS.
 #
 # The base image (Ubuntu cloud image + actions runner + Docker) is built here, by booting
@@ -58,19 +63,31 @@ VM_USER=gh-runner
 if [[ -z $QEMU ]]; then
     if [[ -x /usr/libexec/qemu-kvm ]]; then QEMU=/usr/libexec/qemu-kvm; else QEMU=$(command -v qemu-system-x86_64); fi
 fi
-TAP=ghr0
-HOST_IP=192.168.231.1
-GUEST_IP=192.168.231.2
+# VM slot K (0, 1, ...; one per organisation, slot 0 also builds the image) uses tap ghrK
+# and the /30 network 192.168.231.4K: host .4K+1, guest .4K+2. The guests cannot reach
+# each other: 192.168.0.0/16 is in BLOCK_NETS.
+NET_PREFIX=192.168.231
 BLOCK_NETS="10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.0/16, 224.0.0.0/4"
 API=https://api.github.com
 POLL_SECONDS=30
 
 [[ -n $ORGS ]] || ORGS="$ORG:$RUNNER_GROUP_ID"
 
-VM_PID=
-declare -A RUNNER_IDS=()     # org -> runner id of the current VM's registration
+declare -A SLOTS=()          # org -> VM slot
+declare -A RUNNER_GROUPS=()  # org -> runner group id
+NSLOTS=0
+for entry in $ORGS; do
+    SLOTS[${entry%%:*}]=$NSLOTS
+    RUNNER_GROUPS[${entry%%:*}]=${entry##*:}
+    NSLOTS=$((NSLOTS + 1))
+done
+unset entry
+
+declare -A VM_PIDS=()        # org (or "build") -> qemu pid
+declare -A RUNNER_IDS=()     # org -> runner id of the registration in that org's VM
 declare -A JIT_CONFIGS=()    # org -> encoded JIT config
 declare -A STATES=()         # org -> busy, online, offline, gone or unknown
+declare -A JOB_STARTED=()    # org -> time its runner was first seen busy
 declare -A TOKENS=() TOKEN_EXPIRES=()
 status=
 body=
@@ -194,7 +211,7 @@ any_state() {
 # deregister_runner ORG: fails if GitHub refuses because the runner has meanwhile taken a job
 deregister_runner() {
     local org=$1
-    [[ -n ${RUNNER_IDS[$org]-} ]] || return 0
+    [[ -n ${RUNNER_IDS[$org]-} && ${STATES[$org]-} != gone ]] || return 0
     # JIT runners delete themselves after their job; 404 is the normal case then.
     if api "$org" DELETE "/orgs/$org/actions/runners/${RUNNER_IDS[$org]}" || [[ $status == 404 ]]; then
         STATES[$org]=gone
@@ -210,27 +227,38 @@ deregister_all() {
     RUNNER_IDS=()
     JIT_CONFIGS=()
     STATES=()
+    JOB_STARTED=()
 }
 
-# The VM took a job: withdraw the registrations in the other organisations. One that took
-# a job meanwhile (GitHub refuses) or could not be reached is retried after the next poll.
+# A VM took a job: withdraw the registrations in the other organisations and stop their
+# VMs. One that took a job meanwhile (GitHub refuses) keeps running in its own VM; one
+# that could not be reached is retried after the next poll.
 withdraw_idle() {
     local org
     for org in "${!RUNNER_IDS[@]}"; do
         case ${STATES[$org]} in
             busy|gone) ;;
-            *) deregister_runner "$org" ;;
+            *) deregister_runner "$org" && end_org_vm "$org" ;;
         esac
     done
 }
 
 # ── Guest network: NAT to the internet only ─────────────────────────────────────────
 
+tap_of() { echo "ghr$1"; }
+host_ip_of() { echo "$NET_PREFIX.$((4 * $1 + 1))"; }
+guest_ip_of() { echo "$NET_PREFIX.$((4 * $1 + 2))"; }
+
 setup_network() {
-    local blocked=$BLOCK_NETS${EXTRA_BLOCK_NETS:+, $EXTRA_BLOCK_NETS}
-    ip link show "$TAP" &>/dev/null || ip tuntap add dev "$TAP" mode tap user "$VM_USER" || return 1
-    sysctl -qw "net.ipv6.conf.$TAP.disable_ipv6=1"
-    ip addr replace "$HOST_IP/30" dev "$TAP" && ip link set "$TAP" up || return 1
+    local blocked=$BLOCK_NETS${EXTRA_BLOCK_NETS:+, $EXTRA_BLOCK_NETS} k tap antispoof=
+    (( NSLOTS >= 1 && NSLOTS <= 63 )) || { log "ORGS must list 1 to 63 organisations"; return 1; }
+    for (( k = 0; k < NSLOTS; k++ )); do
+        tap=$(tap_of "$k")
+        ip link show "$tap" &>/dev/null || ip tuntap add dev "$tap" mode tap user "$VM_USER" || return 1
+        sysctl -qw "net.ipv6.conf.$tap.disable_ipv6=1"
+        ip addr replace "$(host_ip_of "$k")/30" dev "$tap" && ip link set "$tap" up || return 1
+        antispoof+="        iifname \"$tap\" ip saddr != $(guest_ip_of "$k") drop"$'\n'
+    done
     nft -f - <<EOF || return 1
 table inet gh_runner
 delete table inet gh_runner
@@ -242,20 +270,19 @@ table inet gh_runner {
     }
     chain input {
         type filter hook input priority filter; policy accept;
-        iifname "$TAP" drop
+        iifname "ghr*" drop
     }
     chain forward {
         type filter hook forward priority filter; policy accept;
-        iifname "$TAP" ip saddr != $GUEST_IP drop
-        iifname "$TAP" ip daddr @blocked drop
-        iifname "$TAP" meta nfproto ipv4 accept
-        iifname "$TAP" drop
-        oifname "$TAP" ct state established,related accept
-        oifname "$TAP" drop
+$antispoof        iifname "ghr*" ip daddr @blocked drop
+        iifname "ghr*" meta nfproto ipv4 accept
+        iifname "ghr*" drop
+        oifname "ghr*" ct state established,related accept
+        oifname "ghr*" drop
     }
     chain postrouting {
         type nat hook postrouting priority srcnat; policy accept;
-        ip saddr $GUEST_IP oifname != "$TAP" masquerade
+        ip saddr $NET_PREFIX.0/24 oifname != "ghr*" masquerade
     }
 }
 EOF
@@ -264,10 +291,10 @@ EOF
 
 # ── VMs ─────────────────────────────────────────────────────────────────────────────
 
-# make_seed DIR INSTANCE_ID USER_DATA: cloud-init NoCloud seed at DIR/seed.iso
+# make_seed DIR INSTANCE_ID USER_DATA SLOT: cloud-init NoCloud seed at DIR/seed.iso
 make_seed() {
-    local dir=$1
-    printf 'instance-id: %s\nlocal-hostname: gh-%s\n' "$2" "$(hostname -s)" >"$dir/meta-data"
+    local dir=$1 slot=$4
+    printf 'instance-id: %s\nlocal-hostname: gh-%s-%s\n' "$2" "$(hostname -s)" "$slot" >"$dir/meta-data"
     printf '%s\n' "$3" >"$dir/user-data"
     cat >"$dir/network-config" <<EOF
 version: 2
@@ -275,10 +302,10 @@ ethernets:
   nic:
     match:
       driver: virtio_net
-    addresses: [$GUEST_IP/30]
+    addresses: [$(guest_ip_of "$slot")/30]
     routes:
       - to: default
-        via: $HOST_IP
+        via: $(host_ip_of "$slot")
     nameservers:
       addresses: [$DNS_SERVERS]
 EOF
@@ -286,25 +313,37 @@ EOF
         "$dir/user-data" "$dir/meta-data" "$dir/network-config"
 }
 
-# start_vm DISK SEED SERIAL: boots in the background as the unprivileged VM user
+# start_vm KEY DISK SEED SERIAL SLOT: boots in the background as the unprivileged VM user
 start_vm() {
     setpriv --reuid="$VM_USER" --regid="$VM_USER" --init-groups -- \
-        "$QEMU" -name gh-runner -machine q35,accel=kvm -cpu host \
+        "$QEMU" -name "gh-runner-$1" -machine q35,accel=kvm -cpu host \
         -smp "$VCPUS" -m "$MEMORY_MB" \
-        -nodefaults -display none -serial "$3" \
-        -drive "file=$1,if=virtio,format=qcow2,discard=unmap" \
-        -drive "file=$2,if=virtio,format=raw,readonly=on" \
-        -netdev "tap,id=net0,ifname=$TAP,script=no,downscript=no" \
+        -nodefaults -display none -serial "$4" \
+        -drive "file=$2,if=virtio,format=qcow2,discard=unmap" \
+        -drive "file=$3,if=virtio,format=raw,readonly=on" \
+        -netdev "tap,id=net0,ifname=$(tap_of "$5"),script=no,downscript=no" \
         -device virtio-net-pci,netdev=net0 \
         -device virtio-rng-pci &
-    VM_PID=$!
+    VM_PIDS[$1]=$!
 }
 
+# vm_running KEY
+vm_running() {
+    [[ -n ${VM_PIDS[$1]-} ]] && kill -0 "${VM_PIDS[$1]}" 2>/dev/null
+}
+
+# stop_vm KEY
 stop_vm() {
-    [[ -n $VM_PID ]] || return 0
-    kill "$VM_PID" 2>/dev/null
-    wait "$VM_PID" 2>/dev/null
-    VM_PID=
+    local pid=${VM_PIDS[$1]-}
+    [[ -n $pid ]] || return 0
+    kill "$pid" 2>/dev/null
+    wait "$pid" 2>/dev/null
+    unset "VM_PIDS[$1]"
+}
+
+stop_all_vms() {
+    local key
+    for key in "${!VM_PIDS[@]}"; do stop_vm "$key"; done
 }
 
 provision_user_data() {
@@ -362,10 +401,11 @@ power_state:
 EOF
 }
 
-# One runner per registration, each in its own copy of the runner directory. The guest
-# powers off when all have exited; the host stops it anyway once the job is done.
+# job_user_data ORG: the guest runs ORG's runner only, in its own copy of the runner
+# directory, and powers off when it has exited; the host stops it anyway once the job is
+# done. Never pass more than one organisation's JIT config into a VM.
 job_user_data() {
-    local org
+    local org=$1
     cat <<'EOF'
 #cloud-config
 write_files:
@@ -382,14 +422,12 @@ write_files:
       wait
       systemctl poweroff
 EOF
-    for org in "${!JIT_CONFIGS[@]}"; do
-        cat <<EOF
+    cat <<EOF
   - path: /etc/gh-runner/jit/$org
     owner: runner:runner
     permissions: "0400"
     content: ${JIT_CONFIGS[$org]}
 EOF
-    done
     cat <<'EOF'
 runcmd:
   - [systemd-run, --unit=gh-runners, --property=Wants=docker.service, --property=After=docker.service, /usr/local/sbin/start-gh-runners]
@@ -415,19 +453,18 @@ build_image() {
         || { log "Checksum mismatch for $name"; return 1; }
     qemu-img convert -O qcow2 "$dir/cloud.img" "$dir/disk.qcow2" \
         && qemu-img resize -q "$dir/disk.qcow2" "${DISK_GB}G" \
-        && make_seed "$dir" "image-$(date +%s)" "$(provision_user_data)" \
+        && make_seed "$dir" "image-$(date +%s)" "$(provision_user_data)" 0 \
         || return 1
     rm -f "$dir/cloud.img"
     chown -R "$VM_USER:$VM_USER" "$dir"
 
-    start_vm "$dir/disk.qcow2" "$dir/seed.iso" "file:$dir/console.log"
+    start_vm build "$dir/disk.qcow2" "$dir/seed.iso" "file:$dir/console.log" 0
     deadline=$(( $(date +%s) + 3600 ))
-    while kill -0 "$VM_PID" 2>/dev/null; do
-        (( $(date +%s) < deadline )) || { log "Image build timed out"; stop_vm; return 1; }
+    while vm_running build; do
+        (( $(date +%s) < deadline )) || { log "Image build timed out"; stop_vm build; return 1; }
         pause 10
     done
-    wait "$VM_PID"
-    VM_PID=
+    stop_vm build
 
     # The marker is computed in the guest so that it never appears literally in the console log
     grep -q 'GH-RUNNER-IMAGE-42-OK' "$dir/console.log" \
@@ -441,49 +478,85 @@ build_image() {
     log "Base image ready"
 }
 
-# One VM: offered to GitHub in every organisation while the workstation stays idle, runs
-# the first job that arrives.
-run_one_vm() {
-    local dir=$STATE_DIR/run started job_started=0 now last_poll=0 busy=false entry
-    for entry in $ORGS; do
-        register_runner "${entry%%:*}" "${entry##*:}"
-    done
-    (( ${#RUNNER_IDS[@]} )) || return 1
+# start_org_vm ORG: registers a runner in ORG and boots a VM that runs only that runner
+start_org_vm() {
+    local org=$1 slot=${SLOTS[$1]} dir=$STATE_DIR/run-$1
+    register_runner "$org" "${RUNNER_GROUPS[$org]}" || return 1
     rm -rf "$dir"
     install -d -o "$VM_USER" -g "$VM_USER" -m 0700 "$dir"
-    qemu-img create -q -f qcow2 -F qcow2 -b "$BASE" "$dir/disk.qcow2" \
-        && make_seed "$dir" "job-$(date +%s)" "$(job_user_data)" \
-        || { deregister_all; return 1; }
+    if ! qemu-img create -q -f qcow2 -F qcow2 -b "$BASE" "$dir/disk.qcow2" \
+        || ! make_seed "$dir" "job-$slot-$(date +%s)" "$(job_user_data "$org")" "$slot"; then
+        end_org_vm "$org"
+        return 1
+    fi
     chown -R "$VM_USER:$VM_USER" "$dir"
+    start_vm "$org" "$dir/disk.qcow2" "$dir/seed.iso" null "$slot"
+}
+
+# end_org_vm ORG: stops ORG's VM, withdraws its registration and deletes its disk
+end_org_vm() {
+    local org=$1
+    stop_vm "$org"
+    deregister_runner "$org"
+    unset "RUNNER_IDS[$org]" "JIT_CONFIGS[$org]" "STATES[$org]" "JOB_STARTED[$org]"
+    rm -rf "$STATE_DIR/run-$org"
+}
+
+end_all_vms() {
+    stop_all_vms
+    rm -f "$BUSY_FLAG"
+    deregister_all
+    rm -rf "$STATE_DIR"/run-*
+}
+
+# One round: a VM per organisation, offered to GitHub while the workstation stays idle.
+# The first job withdraws the other VMs; the round ends when no VM is left.
+run_vms() {
+    local entry org started now last_poll=0 busy=false
+    for entry in $ORGS; do
+        start_org_vm "${entry%%:*}"
+    done
+    (( ${#VM_PIDS[@]} )) || return 1
 
     started=$(date +%s)
-    start_vm "$dir/disk.qcow2" "$dir/seed.iso" null
-    while kill -0 "$VM_PID" 2>/dev/null; do
+    while (( ${#VM_PIDS[@]} )); do
         pause 5
         now=$(date +%s)
+        # A guest powers off when its runner has exited (after its job, or if it failed).
+        for org in "${!VM_PIDS[@]}"; do
+            vm_running "$org" || { log "VM of $org has stopped"; end_org_vm "$org"; }
+        done
+
         if (( now - last_poll >= POLL_SECONDS )); then
             last_poll=$now
             poll_states
-            if ! $busy && any_state busy; then
-                busy=true
-                job_started=$now
-                : >"$BUSY_FLAG"
-                log "Runner took a job; HTCondor jobs are being evicted"
-            fi
+            for org in "${!RUNNER_IDS[@]}"; do
+                [[ ${STATES[$org]} == busy && -z ${JOB_STARTED[$org]-} ]] || continue
+                JOB_STARTED[$org]=$now
+                log "Runner in $org took a job"
+                if ! $busy; then
+                    busy=true
+                    : >"$BUSY_FLAG"
+                    log "HTCondor jobs are being evicted"
+                fi
+            done
             $busy && withdraw_idle
+            # JIT runners are deleted by GitHub when their job is done.
+            for org in "${!VM_PIDS[@]}"; do
+                [[ ${STATES[$org]-} == gone ]] || continue
+                log "Runner in $org is gone (job done); stopping its VM"
+                end_org_vm "$org"
+            done
         fi
 
         if $busy; then
-            # JIT runners are deleted by GitHub when their job is done.
-            if ! any_state busy online offline unknown; then
-                log "Job done; stopping the VM"
-                break
-            fi
             # From the job's start: the VM may have waited for it for many hours.
-            if (( now - job_started > MAX_JOB_SECONDS )); then
-                log "Job ran longer than ${MAX_JOB_SECONDS}s; stopping the VM"
-                break
-            fi
+            for org in "${!JOB_STARTED[@]}"; do
+                if (( now - JOB_STARTED[$org] > MAX_JOB_SECONDS )); then
+                    log "Job in $org ran longer than ${MAX_JOB_SECONDS}s; stopping its VM"
+                    end_org_vm "$org"
+                fi
+            done
         elif ! is_idle; then
             # A job may have been assigned since the last poll; check before pulling the plug.
             last_poll=$now
@@ -492,26 +565,22 @@ run_one_vm() {
             log "Local user is back; withdrawing the idle runners"
             break
         elif ! any_state online && (( now - started > 600 )); then
-            log "Runners did not come online within 10 minutes; restarting the VM"
+            log "Runners did not come online within 10 minutes; restarting the VMs"
             break
         elif (( now - started > 86400 )); then
             # Lets the outer loop rebuild a stale base image even when no jobs come in.
-            log "Idle runner VM is a day old; replacing it"
+            log "Idle runner VMs are a day old; replacing them"
             break
         fi
     done
 
-    stop_vm
-    rm -f "$BUSY_FLAG"
-    $busy && log "Job finished; HTCondor jobs may start again"
-    deregister_all
-    rm -rf "$dir"
+    end_all_vms
+    $busy && log "Jobs finished; HTCondor jobs may start again"
+    return 0
 }
 
 cleanup() {
-    stop_vm
-    rm -f "$BUSY_FLAG"
-    deregister_all
+    end_all_vms
 }
 
 main() {
@@ -524,6 +593,7 @@ main() {
     trap 'exit 0' TERM INT
     trap cleanup EXIT
     rm -f "$BUSY_FLAG"
+    rm -rf "$STATE_DIR/run"   # one shared VM directory before VMs were per organisation
     setup_network || { log "Network setup failed"; exit 1; }
 
     local started
@@ -539,7 +609,7 @@ main() {
             continue
         fi
         started=$(date +%s)
-        run_one_vm || { pause 300; continue; }
+        run_vms || { pause 300; continue; }
         # Do not hammer GitHub if VMs keep dying right away.
         (( $(date +%s) - started > 120 )) || pause 300
     done
