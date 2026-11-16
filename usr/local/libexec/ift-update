@@ -12,17 +12,30 @@ mkdir -p "$STATE"
 
 check=$(bootc upgrade --check 2>&1) || { echo "$check"; echo "Update check failed"; exit 1; }
 remote=$(sed -n 's/^ *Digest: *//p' <<<"$check" | head -1)
-if [[ -z $remote ]]; then
-    echo "No update available"
-    exit 0
-fi
-if [[ -f $STATE/failed ]] && grep -qxF "$remote" "$STATE/failed"; then
-    echo "Image $remote failed its boot check on this machine before; not installing it again"
-    exit 0
-fi
+staged_digest() { bootc status --format json | jq -r '.status.staged.image.imageDigest // empty'; }
+failed_before() { [[ -f $STATE/failed ]] && grep -qxF "$1" "$STATE/failed"; }
 
-bootc upgrade || { echo "bootc upgrade failed"; exit 1; }
-staged=$(bootc status --format json | jq -r '.status.staged.image.imageDigest // empty')
+if [[ -z $remote ]]; then
+    # bootc compares with the image it last fetched: an image staged by hand (bootc upgrade
+    # without a reboot) is "no update", but the machine has not booted it yet.
+    staged=$(staged_digest)
+    if [[ -z $staged ]]; then
+        echo "No update available"
+        exit 0
+    fi
+    if failed_before "$staged"; then
+        echo "Staged image $staged failed its boot check on this machine before; not rebooting into it"
+        exit 0
+    fi
+    echo "Image $staged is already staged"
+else
+    if failed_before "$remote"; then
+        echo "Image $remote failed its boot check on this machine before; not installing it again"
+        exit 0
+    fi
+    bootc upgrade || { echo "bootc upgrade failed"; exit 1; }
+    staged=$(staged_digest)
+fi
 if [[ -z $staged ]]; then
     echo "Nothing was staged"
     exit 0

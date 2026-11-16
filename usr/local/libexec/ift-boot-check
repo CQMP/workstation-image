@@ -27,13 +27,26 @@ counter=$(grub2-editenv "$GRUBENV" list | sed -n 's/^ift_boot_counter=//p')
 
 pending=$(cat "$STATE/pending" 2>/dev/null)
 echo "First boot after an update to ${pending:-?} (GRUB boot attempts left: $counter)"
-booted=$(bootc status --format json | jq -r '.status.booted.image.imageDigest // empty')
+status=$(bootc status --format json)
+booted=$(jq -r '.status.booted.image.imageDigest // empty' <<<"$status")
 
 record_failure() {
     [[ -n $pending ]] && echo "$pending" >>"$STATE/failed"
     rm -f "$STATE/pending" "$STATE/simulate-failure"
     grub2-editenv "$GRUBENV" unset ift_boot_counter
 }
+
+# A staged image becomes a deployment only at a clean shutdown (ostree-finalize-staged).
+# After a power cut or hard reset it is gone and the old image boots without any attempt
+# at the new one: not a failure of the image. ift-update stages it again on its next run.
+if [[ $counter != 0 && -n $pending && $booted != "$pending" ]] \
+    && ! jq -e --arg d "$pending" '[.status.rollback, .status.staged, (.status.otherDeployments // [])[]]
+                                   | any(.image.imageDigest? == $d)' <<<"$status" >/dev/null; then
+    echo "Staged update to $pending was lost (unclean shutdown?) and never booted; still running $booted"
+    rm -f "$STATE/pending"
+    grub2-editenv "$GRUBENV" unset ift_boot_counter
+    exit 0
+fi
 
 if [[ $counter == 0 || -z $pending || $booted != "$pending" ]]; then
     echo "UPDATE FAILED: the new image ${pending:-?} did not boot; running the previous image $booted"
