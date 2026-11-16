@@ -2,7 +2,7 @@
 # Run throwaway GitHub Actions runner VMs, but only while this workstation is idle.
 #
 # Loop: wait until the local graphical session has been idle for IDLE_SECONDS (the same
-# rule as HTCondor's START), then, for each organisation of ORGS, register a single-use
+# rule as HTCondor's START) and no HTCondor job runs here (HTCondor has priority), then, for each organisation of ORGS, register a single-use
 # (JIT) runner with GitHub and boot a copy-on-write VM from the base image that runs only
 # that runner. A VM never holds a registration of a second organisation, so jobs of
 # different organisations never share a VM. The idle VMs run side by side; when one takes a
@@ -12,13 +12,15 @@
 # GitHub assigns jobs on its side, so a second job can arrive before the withdrawal (one
 # poll). It then runs in its own VM; the cost is CPU and memory for both, not isolation.
 #
-# HTCondor: while a runner is busy with a job, /run/gh-runner/busy exists. The startd
-# cron condor-gh-runner-state publishes it as GitHubRunnerBusy, which evicts (checkpoints)
-# the HTCondor jobs and keeps new ones from starting (00-ift-execute.conf). When the job
-# ends the flag is removed and the machine takes HTCondor jobs again.
+# HTCondor has priority: no VM is offered while an HTCondor job runs here (a
+# condor_starter process exists, also while a job is suspended or being checkpointed), and
+# idle VMs are withdrawn when HTCondor starts a job. While a runner is busy with a job,
+# /run/gh-runner/busy exists; the startd cron condor-gh-runner-state publishes it as
+# GitHubRunnerBusy, which keeps new HTCondor jobs from starting (00-ift-execute.conf) but
+# does not evict running ones. When the CI job ends the flag is removed.
 #
-# If the local user comes back before a job has been assigned, the VMs are stopped and the
-# runners deregistered. A job that has already started finishes, at low CPU and IO
+# If the local user comes back, or HTCondor starts a job, before a CI job has been
+# assigned, the VMs are stopped and the runners deregistered. A job that has already started finishes, at low CPU and IO
 # priority (gh-runner-vm.service), killed after MAX_JOB_SECONDS.
 #
 # Each guest sits on its own NATed tap device (ghr0, ghr1, ... with one /30 each in
@@ -108,8 +110,18 @@ is_idle() {
     [[ $idle =~ ^[0-9]+$ ]] && (( idle >= IDLE_SECONDS ))
 }
 
-wait_until_idle() {
-    until is_idle; do pause 30; done
+# An HTCondor job runs (or is suspended, or being checkpointed) on this machine
+condor_busy() {
+    pgrep -x condor_starter >/dev/null
+}
+
+# The machine is free for CI: no local user and no HTCondor job
+is_free() {
+    is_idle && ! condor_busy
+}
+
+wait_until_free() {
+    until is_free; do pause 30; done
 }
 
 # ── GitHub API (as a GitHub App with org "Self-hosted runners: read & write") ───────
@@ -557,12 +569,16 @@ run_vms() {
                     end_org_vm "$org"
                 fi
             done
-        elif ! is_idle; then
+        elif ! is_free; then
             # A job may have been assigned since the last poll; check before pulling the plug.
             last_poll=$now
             poll_states
             any_state busy unknown && continue
-            log "Local user is back; withdrawing the idle runners"
+            if condor_busy; then
+                log "HTCondor started a job; withdrawing the idle runners"
+            else
+                log "Local user is back; withdrawing the idle runners"
+            fi
             break
         elif ! any_state online && (( now - started > 600 )); then
             log "Runners did not come online within 10 minutes; restarting the VMs"
@@ -598,7 +614,7 @@ main() {
 
     local started
     while :; do
-        wait_until_idle
+        wait_until_free
         if [[ ! -s $BASE ]]; then
             build_image || { log "Image build failed; retrying in an hour"; pause 3600; }
             continue
