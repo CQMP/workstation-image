@@ -652,6 +652,7 @@ COPY etc/NetworkManager/conf.d/gh-runner.conf /etc/NetworkManager/conf.d/gh-runn
 COPY usr/lib/sysusers.d/ift-zabbix.conf /usr/lib/sysusers.d/ift-zabbix.conf
 COPY --chmod=0755 usr/local/libexec/ift-zabbix-status /usr/local/libexec/ift-zabbix-status
 COPY etc/zabbix/zabbix_agent2.d/ift-workstation.conf /etc/zabbix/zabbix_agent2.d/ift-workstation.conf
+COPY etc/systemd/system/zabbix-agent2.service.d/10-wait-for-hostname.conf /etc/systemd/system/zabbix-agent2.service.d/10-wait-for-hostname.conf
 RUN f=/etc/zabbix/zabbix_agent2.conf \
     && sed -i -E '/^(Server|ServerActive|Hostname|HostnameItem|HostMetadata|LogType|LogFile)=/d' "$f" \
     && printf '%s\n' '' '# IFT workstations (workstation-image Containerfile)' \
