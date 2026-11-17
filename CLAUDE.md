@@ -89,7 +89,7 @@ CUDA is installed as components (`cuda-compiler`, `cuda-libraries{,-devel}`, `cu
 
 ## HTCondor
 
-Central manager: `condor.gull-group.org`. Each workstation runs `MASTER`, `STARTD`, and `SCHEDD`. A startd cron monitor publishes local graphical-session idle time from systemd-logind because HTCondor's `KeyboardIdle` fallback does not see GNOME input without `condor_kbdd`. Jobs start only when `LocalInteractiveIdle > 900s` and `LoadAvg < 0.5`; remote SSH sessions do not inhibit jobs. CRIU checkpointing is enabled with `cuda-checkpoint` for GPU jobs; vacate time is 1 hour. `cuda-checkpoint` cannot checkpoint processes that use managed memory (`cudaMallocManaged`: "operation not supported", drivers 615 and 620 alike).
+Central manager: `condor.gull-group.org`. Each workstation runs `MASTER`, `STARTD`, and `SCHEDD`. A startd cron monitor publishes local graphical-session idle time from systemd-logind because HTCondor's `KeyboardIdle` fallback does not see GNOME input without `condor_kbdd`. The GDM login screen (session class `greeter`) does not count: on Nozieres logind never marked it idle, so the machine never took jobs (Nov 2026). Jobs start only when `LocalInteractiveIdle > 900s` and `LoadAvg < 0.5`; remote SSH sessions do not inhibit jobs. CRIU checkpointing is enabled with `cuda-checkpoint` for GPU jobs; vacate time is 1 hour. `cuda-checkpoint` cannot checkpoint processes that use managed memory (`cudaMallocManaged`: "operation not supported", drivers 615 and 620 alike).
 
 ## GitHub Actions runners
 

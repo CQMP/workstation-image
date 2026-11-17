@@ -1,6 +1,9 @@
 #!/bin/bash
 # Publish the shortest idle time of any active local graphical session.
-# The output is consumed by HTCondor's startd cron mechanism.
+# The output is consumed by HTCondor's startd cron mechanism (and gh-runner-vm).
+# The GDM login screen (session class greeter) is not a user: on some machines logind
+# never marks it idle (Nozieres, Nov 2026: an X11 greeter with IdleHint=no), which kept
+# the machine from ever taking jobs. A user's lock screen belongs to their own session.
 
 set -u
 
@@ -18,7 +21,7 @@ while read -r session _; do
     [[ -n "${session:-}" ]] || continue
 
     properties=$(loginctl show-session "$session" \
-        -p Active -p Remote -p Type -p IdleHint -p IdleSinceHint 2>/dev/null) || {
+        -p Active -p Remote -p Type -p Class -p IdleHint -p IdleSinceHint 2>/dev/null) || {
         # An unreadable session might be a local graphical user. Fail closed.
         interactive=true
         idle_seconds=0
@@ -28,11 +31,13 @@ while read -r session _; do
     active=$(sed -n 's/^Active=//p' <<<"$properties")
     remote=$(sed -n 's/^Remote=//p' <<<"$properties")
     type=$(sed -n 's/^Type=//p' <<<"$properties")
+    class=$(sed -n 's/^Class=//p' <<<"$properties")
     idle_hint=$(sed -n 's/^IdleHint=//p' <<<"$properties")
     idle_since_us=$(sed -n 's/^IdleSinceHint=//p' <<<"$properties")
 
     [[ "$active" == yes && "$remote" == no ]] || continue
     [[ "$type" == x11 || "$type" == wayland ]] || continue
+    [[ "$class" == greeter ]] && continue
 
     interactive=true
     if [[ "$idle_hint" == no ]]; then
