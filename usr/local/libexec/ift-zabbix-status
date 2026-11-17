@@ -1,0 +1,88 @@
+#!/bin/bash
+# Zabbix item ift.status (etc/zabbix/zabbix_agent2.d/ift-workstation.conf): the workstation-specific values as one
+# JSON object, polled once a minute. The template "IFT workstation" (../cluster_configuration/configs/zabbix/workstations.py)
+# splits it into dependent items. Runs as user zabbix (member of systemd-journal for the journal checks): nothing here
+# needs root. Every probe falls back on its own, so one failing part does not hide the others; values that cannot be
+# determined are left out (their items then keep their last value instead of showing a wrong one).
+set -u
+export LC_ALL=C
+
+# GPU: the first (only) GPU. Memory in MiB (the template converts), power in W.
+gpu='{"ok":0}'
+line=$(timeout 10 nvidia-smi --format=csv,noheader,nounits \
+    --query-gpu=temperature.gpu,utilization.gpu,memory.used,memory.total,power.draw,fan.speed 2>/dev/null | head -1)
+if [[ -n $line ]]; then
+    gpu=$(jq -Rc 'split(",") | map(gsub("^ +| +$"; "") | tonumber? // null)
+        | {ok: 1, temperature: .[0], utilization: .[1], memory_used: .[2], memory_total: .[3], power: .[4], fan: .[5]}' <<<"$line")
+fi
+
+# Updates (ift-update, ift-boot-check): images this machine rejected, and the outcome of the last boot check.
+failed_images=0
+[[ -r /var/lib/ift-update/failed ]] && failed_images=$(grep -c . /var/lib/ift-update/failed)
+last_check=$(journalctl -q --no-pager -o cat -u ift-boot-check.service 2>/dev/null \
+    | grep -E '^(Update OK|UPDATE FAILED)' | tail -1)
+
+# Network: Intel I219 (e1000e) transmit hangs (CLAUDE.md, "Network card"). During a hang the machine cannot report,
+# so after the reboot the previous boot's count tells why it went silent.
+ifc=
+for d in /sys/class/net/*; do
+    [[ $(readlink "$d/device/driver" 2>/dev/null) == */e1000e ]] && { ifc=${d##*/}; break; }
+done
+hangs_now=$(journalctl -q --no-pager -o cat -k --since=-10min 2>/dev/null | grep -c 'Detected Hardware Unit Hang')
+hangs_prev=$(journalctl -q --no-pager -o cat -k -b -1 2>/dev/null | grep -c 'Detected Hardware Unit Hang')
+tso=null
+if [[ -n $ifc ]] && features=$(ethtool -k "$ifc" 2>/dev/null); then
+    grep -q '^tcp-segmentation-offload: on' <<<"$features" && tso=1 || tso=0
+fi
+
+# /data (hard NFS mount, automounted): only probed while mounted, so the check never keeps the automount alive.
+# 0 responds, 1 not mounted, 2 does not respond within 10 s.
+data=1
+if findmnt -n -t nfs4 --mountpoint /data >/dev/null 2>&1; then
+    timeout -s KILL 10 stat -f /data >/dev/null 2>&1 && data=0 || data=2
+fi
+
+# Who works on the machine: local graphical sessions (not the GDM greeter), remote sessions, and the idle time
+# HTCondor uses (condor-logind-idle; 2147483647 = no local session).
+local_sessions=0 remote_sessions=0 users=
+while read -r session _; do
+    [[ -n ${session:-} ]] || continue
+    props=$(loginctl show-session "$session" -p Name -p Remote -p Type -p Class -p State 2>/dev/null) || continue
+    name=$(sed -n 's/^Name=//p' <<<"$props")
+    class=$(sed -n 's/^Class=//p' <<<"$props")
+    [[ $class == user ]] || continue
+    [[ $(sed -n 's/^State=//p' <<<"$props") == closing ]] && continue
+    if [[ $(sed -n 's/^Remote=//p' <<<"$props") == yes ]]; then
+        remote_sessions=$((remote_sessions + 1))
+    elif [[ $(sed -n 's/^Type=//p' <<<"$props") =~ ^(x11|wayland)$ ]]; then
+        local_sessions=$((local_sessions + 1))
+    fi
+    [[ " $users " == *" $name "* ]] || users="${users:+$users }$name"
+done < <(loginctl list-sessions --no-legend 2>/dev/null)
+idle=$(/usr/local/libexec/condor-logind-idle 2>/dev/null | sed -n 's/^LocalInteractiveIdle = //p')
+
+# HTCondor jobs and GitHub Actions runner VMs (gh-runner-vm).
+condor_jobs=$(pgrep -c -x condor_starter)
+runner_busy=0
+[[ -e /run/gh-runner/busy ]] && runner_busy=1
+runner_vms=$(pgrep -c -u gh-runner -x qemu-kvm)
+
+jq -nc \
+    --argjson gpu "$gpu" \
+    --argjson failed_images "${failed_images:-0}" --arg last_check "$last_check" \
+    --arg ifc "$ifc" --argjson hangs_now "${hangs_now:-0}" --argjson hangs_prev "${hangs_prev:-0}" --argjson tso "$tso" \
+    --argjson data "$data" \
+    --argjson local_sessions "$local_sessions" --argjson remote_sessions "$remote_sessions" --arg users "$users" \
+    --arg idle "${idle:-}" \
+    --argjson condor_jobs "${condor_jobs:-0}" --argjson runner_busy "$runner_busy" --argjson runner_vms "${runner_vms:-0}" '
+    {
+      gpu: $gpu,
+      update: {failed_images: $failed_images, last_check: (if $last_check == "" then null else $last_check end)},
+      net: {interface: (if $ifc == "" then null else $ifc end), e1000e_hangs_10m: $hangs_now,
+            e1000e_hangs_previous_boot: $hangs_prev, tso_on: $tso},
+      data: {state: $data},
+      users: {local_sessions: $local_sessions, remote_sessions: $remote_sessions, names: $users,
+              idle_seconds: ($idle | tonumber? // null)},
+      condor: {jobs: $condor_jobs},
+      gh_runner: {busy: $runner_busy, vms: $runner_vms}
+    } | del(.. | nulls)'

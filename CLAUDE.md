@@ -29,6 +29,7 @@ Key config locations and what they do:
 | `etc/systemd/system/scratch-homedirs.service` | Creates `/scratch/<user>/` dirs for each allowed user on boot |
 | `etc/systemd/system/cups-printers.service` | Registers shared network printers (e.g. Sharp MX-C358F) with CUPS on boot, driverlessly via IPP Everywhere |
 | `etc/systemd/system/gh-runner-vm.service`, `usr/local/libexec/gh-runner-vm` | Throwaway GitHub Actions runner VMs while the workstation is idle (see below); settings in `etc/gh-runner/runner.conf` |
+| `etc/zabbix/zabbix_agent2.d/ift-workstation.conf`, `usr/local/libexec/ift-zabbix-status` | Zabbix agent 2 → dashboard "IFT workstations" on `luttinger-master` (no alerts; see Monitoring) |
 | `etc/auto.master` | autofs mounts for `/dmj`, `/expo`, `/repo` and peer workstation scratch disks |
 | `etc/idmapd.conf` | NFSv4 ID mapping domain `fuw.edu.pl` (the department NAS sends owners as `user@fuw.edu.pl`; without it the homes show `nobody`) |
 | `etc/auto.shared_scratch` | autofs map for `/shared_scratch/<host>` NFS mounts of workstation `/scratch` disks |
@@ -100,6 +101,14 @@ Central manager: `condor.gull-group.org`. Each workstation runs `MASTER`, `START
 - **Network:** NAT via one tap per org slot, `ghr0`, `ghr1`, ... (192.168.231.4k/30, slot k in the order of `ORGS`; nftables table `inet gh_runner`). A guest cannot reach the host, the other guests, private ranges (NFS, LDAP, workstations) or `EXTRA_BLOCK_NETS`; DNS is public. No shared folders, no GPU.
 - **Credentials:** one GitHub App (owned by ALPSim, made public so it can be installed in the other orgs) with the org permission "Self-hosted runners: read & write". `APP_ID` and `ORGS` (org:runner group) go in `etc/gh-runner/runner.conf`; the private key goes to `/etc/gh-runner/app.pem` (root 0600) on each host, never in the image (the image is public). The service is inert until the key exists.
 - **Debugging:** `journalctl -u gh-runner-vm`; a failed image build leaves `/var/lib/gh-runner/build/console.log`.
+
+## Monitoring (Zabbix)
+
+`zabbix-agent2` (7.0 LTS, the server's version; official repository) reports to the Zabbix server on `luttinger-master` (`10.98.2.2`) with **active checks only**: the agent connects out to port 10051, which the master's firewall opens for the addresses in `machines.md` (Ansible role `zabbix_workstations` in `../cluster_configuration`). The master never connects to the workstations. A new machine registers itself (host metadata `ift-workstation`, host name = short host name) into the host group "IFT workstations" with the templates "Linux by Zabbix agent active" and "IFT workstation". The host group is excluded from the cluster's alert mails (`configs/zabbix/alerting.py`): the workstations are checked on demand on the dashboard **"IFT workstations"**, and their problems show up only there. Server side: `configs/zabbix/workstations.py` in `../cluster_configuration`.
+
+- `ift.status` (`usr/local/libexec/ift-zabbix-status`, once a minute, as user `zabbix`) gives everything that is specific to the workstations as one JSON object: GPU (`nvidia-smi`; the agent2 NVIDIA plugin only exists from Zabbix 7.2), rejected images and the last boot check outcome, e1000e hangs (last 10 min and previous boot) and TSO, `/data` responsiveness (only probed while mounted, so it never keeps the automount alive), local graphical and remote sessions with user names and the HTCondor idle time, HTCondor jobs, runner VMs. Before rebooting a machine, the dashboard shows whether someone works on it.
+- `zabbix` has fixed IDs 460:460 (`usr/lib/sysusers.d/ift-zabbix.conf`) and is in `systemd-journal`. The agent logs to the journal: `journalctl -u zabbix-agent2`. Test an item locally: `sudo -u zabbix /usr/local/libexec/ift-zabbix-status | jq`.
+- No secret: the connection is unencrypted (the values are not sensitive). Anyone on the network could register a fake host into the group, which only adds a dashboard row. PSK would be a host-local secret like the others.
 
 ## Network card (Intel I219, e1000e)
 

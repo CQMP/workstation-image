@@ -533,6 +533,21 @@ RUN dnf install -y \
     flatpak \
     && dnf clean all
 
+# Zabbix agent 2 for the "IFT workstations" dashboard on luttinger-master (no alerts; see the COPY section below).
+# 7.0 LTS from the official repository, the version of the server (an agent must not be newer than its server;
+# the NVIDIA GPU plugin only exists from 7.2, so the GPU comes from nvidia-smi in ift-zabbix-status). EPEL's zabbix
+# packages are excluded, as in ../cluster-image. The zabbix user gets fixed IDs, created before the package (whose
+# scriptlet then reuses it) and declared in usr/lib/sysusers.d/ift-zabbix.conf for machines whose /etc/passwd
+# differs from the image's. The weekly dnf upgrade below keeps it on the latest 7.0.x.
+RUN groupadd -r -g 460 zabbix \
+    && useradd -r -u 460 -g 460 -G systemd-journal -c "Zabbix Monitoring System" -d /var/lib/zabbix -s /sbin/nologin zabbix \
+    && dnf config-manager --save --setopt=epel.excludepkgs='zabbix*' \
+    && dnf install -y https://repo.zabbix.com/zabbix/7.0/rhel/9/x86_64/zabbix-release-7.0-5.el9.noarch.rpm \
+    && dnf install -y zabbix-agent2 \
+    && dnf clean all \
+    && test "$(id -u zabbix):$(id -g zabbix)" = 460:460 \
+    && id -nG zabbix | grep -qw systemd-journal
+
 # Weekly package updates. The layers above come from the build cache and keep the package
 # versions they were built with; this layer reruns whenever UPDATE_STAMP changes (CI passes the
 # date of the most recent Sunday), so each week's image carries only the updated packages on
@@ -629,6 +644,24 @@ COPY usr/lib/sysusers.d/gh-runner.conf /usr/lib/sysusers.d/gh-runner.conf
 COPY etc/gh-runner/runner.conf /etc/gh-runner/runner.conf
 COPY etc/NetworkManager/conf.d/gh-runner.conf /etc/NetworkManager/conf.d/gh-runner.conf
 
+# Zabbix agent 2: active checks to luttinger-master's outside address (the master never connects to the workstations),
+# autoregistered by host metadata into the host group "IFT workstations", which gets no alert mails, only the
+# dashboard (../cluster_configuration/configs/zabbix/workstations.py). Host name = short host name. Logs to the journal,
+# so no file in /var/log/zabbix can end up with a stale owner. Edit the main file in place: agent2 refuses parameters
+# defined twice. The build check runs the probe once (no GPU or sessions in the build, but it must yield JSON).
+COPY usr/lib/sysusers.d/ift-zabbix.conf /usr/lib/sysusers.d/ift-zabbix.conf
+COPY --chmod=0755 usr/local/libexec/ift-zabbix-status /usr/local/libexec/ift-zabbix-status
+COPY etc/zabbix/zabbix_agent2.d/ift-workstation.conf /etc/zabbix/zabbix_agent2.d/ift-workstation.conf
+RUN f=/etc/zabbix/zabbix_agent2.conf \
+    && sed -i -E '/^(Server|ServerActive|Hostname|HostnameItem|HostMetadata|LogType|LogFile)=/d' "$f" \
+    && printf '%s\n' '' '# IFT workstations (workstation-image Containerfile)' \
+        'Server=10.98.2.2' 'ServerActive=10.98.2.2' 'HostnameItem=system.hostname[shorthost]' \
+        'HostMetadata=ift-workstation' 'LogType=system' >> "$f" \
+    && for k in Server ServerActive HostnameItem HostMetadata LogType; do test "$(grep -c "^$k=" "$f")" -eq 1; done \
+    && ! grep -q '^Hostname=' "$f" \
+    && /usr/local/libexec/ift-zabbix-status | jq -e '.gpu.ok == 0 and .data.state == 1' >/dev/null \
+    && zabbix_agent2 -c "$f" -t ift.status | grep -q '"gpu"'
+
 # Intel I219 (e1000e) transmit hangs under load: TSO/GSO off when udev names the device
 COPY usr/lib/systemd/network/98-e1000e-no-tso.link /usr/lib/systemd/network/98-e1000e-no-tso.link
 
@@ -645,6 +678,7 @@ RUN systemctl enable scratch.mount \
     && systemctl enable ift-boot-check.service \
     && systemctl enable cups-printers.service \
     && systemctl enable gh-runner-vm.service \
+    && systemctl enable zabbix-agent2.service \
     && systemctl mask bootc-fetch-apply-updates.timer bootc-fetch-apply-updates.service kdump.service
 
 COPY etc/NetworkManager/conf.d/hostname.conf /etc/NetworkManager/conf.d/hostname.conf
