@@ -8,10 +8,11 @@ set -u
 export LC_ALL=C
 
 # GPU: the first (only) GPU. Memory in MiB (the template converts), power in W.
+# nvidia-smi prints its failures ("couldn't communicate with the NVIDIA driver") to stdout: only a numeric line counts.
 gpu='{"ok":0}'
-line=$(timeout 10 nvidia-smi --format=csv,noheader,nounits \
-    --query-gpu=temperature.gpu,utilization.gpu,memory.used,memory.total,power.draw,fan.speed 2>/dev/null | head -1)
-if [[ -n $line ]]; then
+if out=$(timeout 10 nvidia-smi --format=csv,noheader,nounits \
+        --query-gpu=temperature.gpu,utilization.gpu,memory.used,memory.total,power.draw,fan.speed 2>/dev/null) \
+    && line=$(head -1 <<<"$out") && [[ $line =~ ^[0-9] ]]; then
     gpu=$(jq -Rc 'split(",") | map(gsub("^ +| +$"; "") | tonumber? // null)
         | {ok: 1, temperature: .[0], utilization: .[1], memory_used: .[2], memory_total: .[3], power: .[4], fan: .[5]}' <<<"$line")
 fi
@@ -65,7 +66,8 @@ idle=$(/usr/local/libexec/condor-logind-idle 2>/dev/null | sed -n 's/^LocalInter
 condor_jobs=$(pgrep -c -x condor_starter)
 runner_busy=0
 [[ -e /run/gh-runner/busy ]] && runner_busy=1
-runner_vms=$(pgrep -c -u gh-runner -x qemu-kvm)
+runner_vms=0
+id -u gh-runner >/dev/null 2>&1 && runner_vms=$(pgrep -c -u gh-runner -x qemu-kvm)
 
 jq -nc \
     --argjson gpu "$gpu" \

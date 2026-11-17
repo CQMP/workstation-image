@@ -659,8 +659,9 @@ RUN f=/etc/zabbix/zabbix_agent2.conf \
         'HostMetadata=ift-workstation' 'LogType=system' >> "$f" \
     && for k in Server ServerActive HostnameItem HostMetadata LogType; do test "$(grep -c "^$k=" "$f")" -eq 1; done \
     && ! grep -q '^Hostname=' "$f" \
-    && /usr/local/libexec/ift-zabbix-status | jq -e '.gpu.ok == 0 and .data.state == 1' >/dev/null \
-    && zabbix_agent2 -c "$f" -t ift.status | grep -q '"gpu"'
+    && out=$(/usr/local/libexec/ift-zabbix-status) && echo "$out" \
+    && jq -e '.gpu.ok == 0 and .data.state == 1' <<<"$out" >/dev/null \
+    && zabbix_agent2 -c "$f" -t ift.status | tee /dev/stderr | grep -q '"gpu"'
 
 # Intel I219 (e1000e) transmit hangs under load: TSO/GSO off when udev names the device
 COPY usr/lib/systemd/network/98-e1000e-no-tso.link /usr/lib/systemd/network/98-e1000e-no-tso.link
