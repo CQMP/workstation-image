@@ -130,7 +130,7 @@ If LDAP auth fails, check: (1) user exists in LDAP Unix domain, (2) user is in `
 
 - `/dmj`, `/expo`, `/repo` — NFS via autofs (home dirs, shared code, backed up)
 - `/data` — NFSv4.2 from `luttinger-storage` (`10.98.2.4:/data`, ZFS raidz2, one dataset per user with a 10 TB quota), systemd automount, `hard` mount. Exports, quotas and the workstation client list (read from `machines.md`) are managed in `../cluster_configuration`
-- `/scratch` — local NVMe scratch, per-user dirs created by `scratch-homedirs.service`, **not backed up** (was mounted at `/data` before Oct 2026; same partition, label `data`). Holds the 32 GiB swap file `/scratch/swapfile` (root 0600; added Nov 2026 after workstations hung when they ran out of memory)
+- `/scratch` — local NVMe scratch, per-user dirs created by `scratch-homedirs.service`, **not backed up** (was mounted at `/data` before Oct 2026; same partition, label `data`). Holds the 32 GiB swap file `/scratch/swapfile` (root 0600; added Nov 2026 after workstations hung when they ran out of memory); with the 8 GiB zram swap of the base image (used first) 40 GiB of swap, column "Swap" on the Zabbix dashboard
 - `/shared_scratch/<host>` — on-demand NFS access to another workstation's `/scratch`; availability depends on that workstation being powered on and reachable
 
 ## Printing
