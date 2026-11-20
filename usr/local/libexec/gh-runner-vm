@@ -19,7 +19,11 @@
 # GitHubRunnerBusy, which keeps new HTCondor jobs from starting (00-ift-execute.conf) but
 # does not evict running ones. When the CI job ends the flag is removed.
 #
-# If the local user comes back, or HTCondor starts a job, before a CI job has been
+# Users logged in over SSH (or with a session left behind by one, e.g. tmux or nohup) also keep
+# the machine from CI: they may need the memory that the idle VMs hold (~3 GB each). Only
+# regular users (UID >= 1000) count, not root or system accounts.
+#
+# If the local user comes back, an SSH user logs in, or HTCondor starts a job, before a CI job has been
 # assigned, the VMs are stopped and the runners deregistered. A job that has already started finishes, at low CPU and IO
 # priority (gh-runner-vm.service), killed after MAX_JOB_SECONDS.
 #
@@ -115,9 +119,24 @@ condor_busy() {
     pgrep -x condor_starter >/dev/null
 }
 
-# The machine is free for CI: no local user and no HTCondor job
+# A regular user has a session over SSH, also one that is closing but has processes left
+# (tmux, nohup): remote computations need the memory that idle VMs hold.
+remote_user() {
+    local session props uid
+    while read -r session _; do
+        [[ -n ${session:-} ]] || continue
+        props=$(loginctl show-session "$session" -p Remote -p Class -p User 2>/dev/null) || continue
+        [[ $(sed -n 's/^Remote=//p' <<<"$props") == yes ]] || continue
+        [[ $(sed -n 's/^Class=//p' <<<"$props") == user ]] || continue
+        uid=$(sed -n 's/^User=//p' <<<"$props")
+        [[ $uid =~ ^[0-9]+$ ]] && (( uid >= 1000 )) && return 0
+    done < <(loginctl list-sessions --no-legend 2>/dev/null)
+    return 1
+}
+
+# The machine is free for CI: no local user, no SSH user and no HTCondor job
 is_free() {
-    is_idle && ! condor_busy
+    is_idle && ! remote_user && ! condor_busy
 }
 
 wait_until_free() {
@@ -576,6 +595,8 @@ run_vms() {
             any_state busy unknown && continue
             if condor_busy; then
                 log "HTCondor started a job; withdrawing the idle runners"
+            elif remote_user; then
+                log "A user logged in over SSH; withdrawing the idle runners"
             else
                 log "Local user is back; withdrawing the idle runners"
             fi
