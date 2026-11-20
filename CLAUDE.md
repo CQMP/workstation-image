@@ -26,6 +26,7 @@ Key config locations and what they do:
 | `etc/systemd/system/ift-boot-check.service`, `usr/local/libexec/ift-boot-check`, `usr/lib/ift/grub-user.cfg` | After an update: boot check, GRUB boot counting, rollback |
 | `etc/systemd/system/data.{mount,automount}` | Automounts `/data` via NFSv4.2 from `luttinger-storage` (`10.98.2.4:/data`) |
 | `etc/systemd/system/scratch.mount` | Mounts local NVMe scratch partition (label `data`) at `/scratch` |
+| `etc/systemd/system/scratch-swapfile.swap`, `ift-swapfile.service`, `usr/local/libexec/ift-swapfile` | 32 GiB swap file (= RAM) `/scratch/swapfile`, created with `dd` on the first boot (skipped if fewer than 52 GiB are free) |
 | `etc/systemd/system/scratch-homedirs.service` | Creates `/scratch/<user>/` dirs for each allowed user on boot |
 | `etc/systemd/system/cups-printers.service` | Registers shared network printers (e.g. Sharp MX-C358F) with CUPS on boot, driverlessly via IPP Everywhere |
 | `etc/systemd/system/gh-runner-vm.service`, `usr/local/libexec/gh-runner-vm` | Throwaway GitHub Actions runner VMs while the workstation is idle (see below); settings in `etc/gh-runner/runner.conf` |
@@ -129,7 +130,7 @@ If LDAP auth fails, check: (1) user exists in LDAP Unix domain, (2) user is in `
 
 - `/dmj`, `/expo`, `/repo` — NFS via autofs (home dirs, shared code, backed up)
 - `/data` — NFSv4.2 from `luttinger-storage` (`10.98.2.4:/data`, ZFS raidz2, one dataset per user with a 10 TB quota), systemd automount, `hard` mount. Exports, quotas and the workstation client list (read from `machines.md`) are managed in `../cluster_configuration`
-- `/scratch` — local NVMe scratch, per-user dirs created by `scratch-homedirs.service`, **not backed up** (was mounted at `/data` before Oct 2026; same partition, label `data`)
+- `/scratch` — local NVMe scratch, per-user dirs created by `scratch-homedirs.service`, **not backed up** (was mounted at `/data` before Oct 2026; same partition, label `data`). Holds the 32 GiB swap file `/scratch/swapfile` (root 0600; added Nov 2026 after workstations hung when they ran out of memory)
 - `/shared_scratch/<host>` — on-demand NFS access to another workstation's `/scratch`; availability depends on that workstation being powered on and reachable
 
 ## Printing

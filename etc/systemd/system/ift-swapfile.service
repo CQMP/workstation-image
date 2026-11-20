@@ -1,0 +1,13 @@
+[Unit]
+Description=Create the swap file on /scratch
+# Runs before swap.target and sysinit.target, hence no default dependencies
+DefaultDependencies=no
+Requires=scratch.mount
+After=scratch.mount
+Before=scratch-swapfile.swap shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/libexec/ift-swapfile

@@ -625,6 +625,10 @@ COPY etc/flatpak/remotes.d/flathub.flatpakrepo /etc/flatpak/remotes.d/flathub.fl
 
 COPY etc/systemd/system/scratch.mount /etc/systemd/system/scratch.mount
 COPY etc/systemd/system/scratch-homedirs.service /etc/systemd/system/scratch-homedirs.service
+# 32 GiB swap file (= RAM) on /scratch, created on the first boot
+COPY --chmod=0755 usr/local/libexec/ift-swapfile /usr/local/libexec/ift-swapfile
+COPY etc/systemd/system/ift-swapfile.service /etc/systemd/system/ift-swapfile.service
+COPY etc/systemd/system/scratch-swapfile.swap /etc/systemd/system/scratch-swapfile.swap
 COPY etc/systemd/system/data.mount /etc/systemd/system/data.mount
 COPY etc/systemd/system/data.automount /etc/systemd/system/data.automount
 COPY etc/systemd/system/bootc-update.service /etc/systemd/system/bootc-update.service
@@ -675,6 +679,7 @@ COPY etc/systemd/system/vncserver@.service.d/10-wait-for-home.conf /etc/systemd/
 
 RUN systemctl enable scratch.mount \
     && systemctl enable scratch-homedirs.service \
+    && systemctl enable scratch-swapfile.swap \
     && systemctl enable data.automount \
     && systemctl enable bootc-update.timer \
     && systemctl enable ift-boot-check.service \

@@ -1,0 +1,10 @@
+[Unit]
+Description=Swap file on the local NVMe scratch partition
+Requires=ift-swapfile.service
+After=ift-swapfile.service
+
+[Swap]
+What=/scratch/swapfile
+
+[Install]
+WantedBy=swap.target

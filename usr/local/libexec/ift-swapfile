@@ -1,0 +1,27 @@
+#!/bin/bash
+# Creates the 32 GiB swap file /scratch/swapfile (ift-swapfile.service, before scratch-swapfile.swap).
+# 32 GiB = the workstations' RAM. Written with dd, not fallocate: swapon refuses files with holes
+# or unwritten extents on some file systems. Written under a temporary name and renamed, so a
+# power cut during the write leaves no half-made swap file. Skipped (the swap unit then fails,
+# the boot goes on) if it would leave less than RESERVE_GIB free on /scratch.
+set -euo pipefail
+FILE=/scratch/swapfile
+SIZE_GIB=32
+RESERVE_GIB=20
+size=$((SIZE_GIB << 30))
+
+if [[ -f $FILE ]] && [[ $(stat -c %s "$FILE") -eq $size ]]; then
+    exit 0
+fi
+rm -f "$FILE" "$FILE.new"
+avail=$(df --output=avail -B1 /scratch | tail -n 1)
+if (( avail < size + (RESERVE_GIB << 30) )); then
+    echo "Not enough free space on /scratch for a ${SIZE_GIB} GiB swap file ($((avail >> 30)) GiB free)"
+    exit 1
+fi
+echo "Creating ${SIZE_GIB} GiB swap file $FILE"
+umask 077
+dd if=/dev/zero of="$FILE.new" bs=1M count=$((SIZE_GIB * 1024)) status=none
+mkswap -q "$FILE.new"
+sync "$FILE.new"
+mv "$FILE.new" "$FILE"
