@@ -22,6 +22,6 @@ fi
 echo "Creating ${SIZE_GIB} GiB swap file $FILE"
 umask 077
 dd if=/dev/zero of="$FILE.new" bs=1M count=$((SIZE_GIB * 1024)) status=none
-mkswap -q "$FILE.new"
+mkswap "$FILE.new" >/dev/null   # no -q in EL9's util-linux 2.37
 sync "$FILE.new"
 mv "$FILE.new" "$FILE"
